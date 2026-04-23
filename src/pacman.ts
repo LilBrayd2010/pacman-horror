@@ -19,9 +19,13 @@ export class Pacman {
   position = new THREE.Vector3();
   radius = 0.45;
   speed: number;
+  baseSpeed: number;
+  repathPeriod = 0.35;
   caughtRadius: number;
   sprite: THREE.Sprite;
   light: THREE.PointLight;
+  /** 0..1 — boss-floor weakening factor. 0 = full health, 1 = shattered. */
+  weakened = 0;
 
   private maze: MazeData;
   private frames: THREE.Texture[] = [];
@@ -34,6 +38,7 @@ export class Pacman {
   constructor(opts: PacmanOptions) {
     this.maze = opts.maze;
     this.speed = opts.speed;
+    this.baseSpeed = opts.speed;
     this.caughtRadius = opts.onCaughtRadius ?? 0.65;
     this.yOffset = 1.1;
     this.position.set(opts.startX, this.yOffset, opts.startZ);
@@ -79,11 +84,11 @@ export class Pacman {
     this.sprite.material.map = this.frames[frameIdx];
     this.sprite.material.needsUpdate = true;
 
-    // repath every 0.4s or when path exhausted
+    // repath every repathPeriod (configurable by upgrades) or when path exhausted
     this.repathTimer -= dt;
     if (this.repathTimer <= 0 || this.pathIndex >= this.currentPath.length) {
       this.recomputePath(playerPos);
-      this.repathTimer = 0.35;
+      this.repathTimer = this.repathPeriod;
     }
 
     // follow current path

@@ -1,6 +1,7 @@
 import * as THREE from 'three';
 import type { MazeData } from './maze';
 import { circleCollides } from './maze';
+import type { PlayerModifiers } from './upgrades';
 
 export interface PlayerOptions {
   maze: MazeData;
@@ -16,6 +17,8 @@ export class Player {
   velocity = new THREE.Vector3();
   stamina = 1; // 0..1
   sprinting = false;
+  /** seconds of pickup-burst speed still active (from Drift Step upgrade). */
+  burstRemaining = 0;
 
   radius = 0.35;
   height = 1.55;
@@ -44,6 +47,7 @@ export class Player {
       sprint: boolean;
     },
     mouseDelta: { lookDX: number; lookDY: number },
+    mods?: PlayerModifiers,
   ) {
     // look — mouse delta + right stick
     this.yaw -= mouseDelta.lookDX * this.mouseSensitivity;
@@ -53,15 +57,30 @@ export class Player {
     const maxPitch = Math.PI / 2 - 0.1;
     this.pitch = Math.max(-maxPitch, Math.min(maxPitch, this.pitch));
 
+    const moveMul = mods?.moveSpeedMul ?? 1;
+    const sprintMul = mods?.sprintSpeedMul ?? 1;
+    const staminaCap = mods?.staminaCapMul ?? 1;
+    const drainMul = mods?.staminaDrainMul ?? 1;
+    const regenMul = mods?.staminaRegenMul ?? 1;
+
     // sprint / stamina
     const wantsSprint = input.sprint && (Math.abs(input.moveX) > 0.05 || Math.abs(input.moveY) > 0.05);
     this.sprinting = wantsSprint && this.stamina > 0.01;
-    const baseSpeed = this.sprinting ? this.sprintSpeed : this.walkSpeed;
-    if (this.sprinting) {
-      this.stamina = Math.max(0, this.stamina - this.staminaDrain * dt);
-    } else {
-      this.stamina = Math.min(1, this.stamina + this.staminaRegen * dt);
+    const walkSpeed = this.walkSpeed * moveMul;
+    const sprintSpeed = this.sprintSpeed * moveMul * sprintMul;
+    let baseSpeed = this.sprinting ? sprintSpeed : walkSpeed;
+    // Drift Step pickup burst
+    if (this.burstRemaining > 0) {
+      this.burstRemaining = Math.max(0, this.burstRemaining - dt);
+      baseSpeed *= 1.7;
     }
+    if (this.sprinting) {
+      this.stamina = Math.max(0, this.stamina - this.staminaDrain * drainMul * dt);
+    } else {
+      this.stamina = Math.min(staminaCap, this.stamina + this.staminaRegen * regenMul * dt);
+    }
+    // clamp stamina if cap shrank (e.g. Deep Lungs then a -cap upgrade)
+    if (this.stamina > staminaCap) this.stamina = staminaCap;
 
     // movement direction in world space. the three.js camera's default look
     // direction is -Z, and applying yaw rotates that to (-sin(yaw),0,-cos(yaw))

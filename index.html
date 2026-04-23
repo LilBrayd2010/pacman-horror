@@ -19,21 +19,22 @@
         <div class="title-art">
           <div class="title-main">SOULCHASE</div>
           <div class="title-sub">you are the ghost. <em>he</em> is hungry.</div>
+          <div class="title-floorhint">20 floors. he is faster each one.</div>
         </div>
         <div class="menu">
           <div class="menu-label">Choose your fate</div>
           <div class="difficulty">
             <button class="diff-btn" data-difficulty="easy">
               <span class="diff-name">Easy</span>
-              <span class="diff-desc">10 souls · slow hunter</span>
+              <span class="diff-desc">slow hunter · small halls</span>
             </button>
             <button class="diff-btn" data-difficulty="medium">
               <span class="diff-name">Medium</span>
-              <span class="diff-desc">20 souls · keen hunter</span>
+              <span class="diff-desc">keen hunter · wider halls</span>
             </button>
             <button class="diff-btn" data-difficulty="hard">
               <span class="diff-name">Hard</span>
-              <span class="diff-desc">30 souls · relentless</span>
+              <span class="diff-desc">relentless · sprawling halls</span>
             </button>
           </div>
           <div class="controls-hint">
@@ -47,16 +48,32 @@
       <!-- In-game HUD -->
       <div id="hud" class="hidden">
         <div class="hud-top">
-          <div class="hud-souls">
-            <span class="hud-icon">✦</span>
-            <span id="hud-soul-count">0</span>
-            <span class="hud-slash">/</span>
-            <span id="hud-soul-target">10</span>
+          <div class="hud-left">
+            <div id="hud-floor" class="hud-floor">FLOOR 1 · DUSTY CRYPT</div>
+            <div class="hud-souls">
+              <span class="hud-icon">✦</span>
+              <span id="hud-soul-count">0</span>
+              <span class="hud-slash">/</span>
+              <span id="hud-soul-target">3</span>
+            </div>
+            <div id="hud-minibar" class="hud-minibar">
+              <div class="hud-minibar-label">NEXT MINI UPGRADE</div>
+              <div class="hud-minibar-track"><div id="hud-minibar-fill"></div></div>
+            </div>
           </div>
-          <div class="hud-stamina-wrap">
-            <div id="hud-stamina-bar"></div>
+          <div class="hud-right">
+            <div class="hud-stamina-wrap"><div id="hud-stamina-bar"></div></div>
+            <div id="hud-shieldicon" class="hud-shieldicon hidden">SHIELD</div>
           </div>
         </div>
+
+        <div id="hud-floortitle" class="hud-floortitle hidden">
+          <div id="hud-floortitle-num">FLOOR 1</div>
+          <div id="hud-floortitle-name">DUSTY CRYPT</div>
+        </div>
+
+        <div id="hud-activeupgrades" class="hud-activeupgrades"></div>
+
         <div id="hud-heartbeat"></div>
         <div id="hud-vignette"></div>
         <div id="hud-warning" class="hidden">HE SEES YOU</div>
@@ -73,16 +90,46 @@
         </div>
       </div>
 
-      <!-- End screens -->
-      <div id="win-screen" class="overlay hidden">
-        <div class="end-title win">YOU ESCAPED</div>
-        <div class="end-sub">Every soul is free. For now.</div>
-        <button class="end-btn" id="win-again">Again</button>
+      <!-- Descent fade overlay (camera-drop between floors) -->
+      <div id="descent-overlay" class="descent-overlay hidden">
+        <div class="descent-streaks"></div>
+        <div class="descent-caption" id="descent-caption">DEEPER</div>
       </div>
+
+      <!-- Upgrade card picker — pops between floors and every 3 souls -->
+      <div id="upgrade-overlay" class="upgrade-overlay hidden">
+        <div class="upgrade-tier" id="upgrade-tier">MINI UPGRADE</div>
+        <div class="upgrade-subtitle">Pick one. Every gift draws its price.</div>
+        <div class="upgrade-cards" id="upgrade-cards"></div>
+      </div>
+
+      <!-- Cliffhanger cutscene after boss defeated -->
+      <div id="cutscene-overlay" class="cutscene-overlay hidden">
+        <div class="cutscene-frame" id="cutscene-frame"></div>
+        <div class="cutscene-caption" id="cutscene-caption"></div>
+        <button id="cutscene-skip" class="cutscene-skip hidden">skip</button>
+      </div>
+
+      <!-- Run-over screens -->
       <div id="lose-screen" class="overlay hidden">
         <div class="end-title lose">HE FOUND YOU</div>
         <div class="end-sub">The chomping never really stopped.</div>
-        <button class="end-btn" id="lose-again">Again</button>
+        <div class="end-stats" id="lose-stats"></div>
+        <button class="end-btn" id="lose-again">Descend again</button>
+      </div>
+
+      <div id="cliffhanger-screen" class="overlay hidden">
+        <div class="end-title cliffhanger">RUN COMPLETE</div>
+        <div class="end-sub">Twenty floors. One soul.</div>
+        <div class="end-stats" id="cliff-stats"></div>
+        <div class="chapter-row">
+          <button class="end-btn primary" id="cliff-again">Descend again</button>
+          <button class="end-btn locked" id="cliff-chapter2" disabled>
+            <span class="lock-icon">🔒</span>
+            CHAPTER 2
+            <span class="lock-sub">coming soon</span>
+          </button>
+        </div>
       </div>
     </div>
 

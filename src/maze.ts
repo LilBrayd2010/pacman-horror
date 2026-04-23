@@ -87,7 +87,13 @@ export function buildMazeData(cols: number, rows: number, cellSize = 2.2, wallHe
   };
 }
 
-export function buildMazeMesh(maze: MazeData): THREE.Group {
+export interface MazeMeshTint {
+  wall: number;
+  floor: number;
+  ceiling: number;
+}
+
+export function buildMazeMesh(maze: MazeData, tint?: MazeMeshTint): THREE.Group {
   const group = new THREE.Group();
   const wallTex = makeWallTexture();
   const floorTex = makeFloorTexture();
@@ -100,7 +106,12 @@ export function buildMazeMesh(maze: MazeData): THREE.Group {
   // floor
   const floor = new THREE.Mesh(
     new THREE.PlaneGeometry(width * cellSize, height * cellSize),
-    new THREE.MeshStandardMaterial({ map: floorTex, roughness: 0.95, metalness: 0 }),
+    new THREE.MeshStandardMaterial({
+      map: floorTex,
+      roughness: 0.95,
+      metalness: 0,
+      color: tint?.floor ?? 0xffffff,
+    }),
   );
   floor.rotation.x = -Math.PI / 2;
   floor.position.set((width * cellSize) / 2, 0, (height * cellSize) / 2);
@@ -110,7 +121,12 @@ export function buildMazeMesh(maze: MazeData): THREE.Group {
   // ceiling
   const ceiling = new THREE.Mesh(
     new THREE.PlaneGeometry(width * cellSize, height * cellSize),
-    new THREE.MeshStandardMaterial({ map: ceilTex, roughness: 1, metalness: 0 }),
+    new THREE.MeshStandardMaterial({
+      map: ceilTex,
+      roughness: 1,
+      metalness: 0,
+      color: tint?.ceiling ?? 0xffffff,
+    }),
   );
   ceiling.rotation.x = Math.PI / 2;
   ceiling.position.set((width * cellSize) / 2, wallHeight, (height * cellSize) / 2);
@@ -122,6 +138,7 @@ export function buildMazeMesh(maze: MazeData): THREE.Group {
     map: wallTex,
     roughness: 0.9,
     metalness: 0.0,
+    color: tint?.wall ?? 0xffffff,
   });
   const dummy = new THREE.Object3D();
   let wallCount = 0;

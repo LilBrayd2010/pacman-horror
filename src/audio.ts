@@ -261,6 +261,128 @@ export class AudioEngine {
     }
   }
 
+  /** Downward woosh + low drop tone when the player descends through the floor. */
+  playDescent() {
+    if (!this.ctx || !this.master || !this.noiseBuffer) return;
+    const now = this.ctx.currentTime;
+    const osc = this.ctx.createOscillator();
+    osc.type = 'sawtooth';
+    osc.frequency.setValueAtTime(320, now);
+    osc.frequency.exponentialRampToValueAtTime(40, now + 1.2);
+    const og = this.ctx.createGain();
+    og.gain.setValueAtTime(0.0001, now);
+    og.gain.linearRampToValueAtTime(0.22, now + 0.1);
+    og.gain.exponentialRampToValueAtTime(0.0001, now + 1.3);
+    osc.connect(og).connect(this.master);
+    osc.start(now);
+    osc.stop(now + 1.4);
+
+    // rushing air
+    const n = this.ctx.createBufferSource();
+    n.buffer = this.noiseBuffer;
+    const nf = this.ctx.createBiquadFilter();
+    nf.type = 'bandpass';
+    nf.frequency.setValueAtTime(2400, now);
+    nf.frequency.exponentialRampToValueAtTime(300, now + 1.1);
+    nf.Q.value = 0.8;
+    const ng = this.ctx.createGain();
+    ng.gain.setValueAtTime(0, now);
+    ng.gain.linearRampToValueAtTime(0.3, now + 0.15);
+    ng.gain.exponentialRampToValueAtTime(0.001, now + 1.3);
+    n.connect(nf).connect(ng).connect(this.master);
+    n.start(now);
+    n.stop(now + 1.4);
+  }
+
+  /** Sharp glassy crack when a boss shard breaks (and when a shield absorbs a hit). */
+  playShardBreak() {
+    if (!this.ctx || !this.master || !this.noiseBuffer) return;
+    const now = this.ctx.currentTime;
+    for (let i = 0; i < 3; i++) {
+      const osc = this.ctx.createOscillator();
+      osc.type = 'triangle';
+      const base = 2200 - i * 400;
+      osc.frequency.setValueAtTime(base, now + i * 0.015);
+      osc.frequency.exponentialRampToValueAtTime(base * 0.3, now + i * 0.015 + 0.18);
+      const g = this.ctx.createGain();
+      g.gain.setValueAtTime(0.0001, now + i * 0.015);
+      g.gain.exponentialRampToValueAtTime(0.25, now + i * 0.015 + 0.01);
+      g.gain.exponentialRampToValueAtTime(0.0001, now + i * 0.015 + 0.25);
+      osc.connect(g).connect(this.master);
+      osc.start(now + i * 0.015);
+      osc.stop(now + i * 0.015 + 0.3);
+    }
+    const n = this.ctx.createBufferSource();
+    n.buffer = this.noiseBuffer;
+    const nf = this.ctx.createBiquadFilter();
+    nf.type = 'highpass';
+    nf.frequency.value = 1800;
+    const ng = this.ctx.createGain();
+    ng.gain.setValueAtTime(0, now);
+    ng.gain.linearRampToValueAtTime(0.22, now + 0.01);
+    ng.gain.exponentialRampToValueAtTime(0.001, now + 0.2);
+    n.connect(nf).connect(ng).connect(this.master);
+    n.start(now);
+    n.stop(now + 0.22);
+  }
+
+  /** Distant, impossibly heavy rumble — the "bigger hunter" approaching for the cliffhanger. */
+  playDistantRumble(durationSec = 6) {
+    if (!this.ctx || !this.master || !this.noiseBuffer) return;
+    const now = this.ctx.currentTime;
+    const osc = this.ctx.createOscillator();
+    osc.type = 'sawtooth';
+    osc.frequency.setValueAtTime(28, now);
+    const filt = this.ctx.createBiquadFilter();
+    filt.type = 'lowpass';
+    filt.frequency.value = 110;
+    const g = this.ctx.createGain();
+    g.gain.setValueAtTime(0, now);
+    g.gain.linearRampToValueAtTime(0.4, now + durationSec * 0.7);
+    g.gain.linearRampToValueAtTime(0.0001, now + durationSec);
+    osc.connect(filt).connect(g).connect(this.master);
+    osc.start(now);
+    osc.stop(now + durationSec + 0.05);
+
+    // slow heavy footstep thuds every ~1.2s, getting louder
+    const steps = Math.max(1, Math.floor(durationSec / 1.1));
+    for (let i = 0; i < steps; i++) {
+      const t = now + 0.4 + i * 1.15;
+      const s = this.ctx.createOscillator();
+      s.type = 'sine';
+      s.frequency.setValueAtTime(60, t);
+      s.frequency.exponentialRampToValueAtTime(20, t + 0.35);
+      const sg = this.ctx.createGain();
+      const loud = 0.1 + (i / steps) * 0.5;
+      sg.gain.setValueAtTime(0.0001, t);
+      sg.gain.exponentialRampToValueAtTime(loud, t + 0.02);
+      sg.gain.exponentialRampToValueAtTime(0.0001, t + 0.45);
+      s.connect(sg).connect(this.master);
+      s.start(t);
+      s.stop(t + 0.5);
+    }
+  }
+
+  /** Pac-Man's soul ripping free — high warbling cry. */
+  playSoulEscape() {
+    if (!this.ctx || !this.master) return;
+    const now = this.ctx.currentTime;
+    for (let i = 0; i < 2; i++) {
+      const osc = this.ctx.createOscillator();
+      osc.type = 'sine';
+      const base = 740 + i * 180;
+      osc.frequency.setValueAtTime(base, now);
+      osc.frequency.exponentialRampToValueAtTime(base * 0.25, now + 2);
+      const g = this.ctx.createGain();
+      g.gain.setValueAtTime(0, now);
+      g.gain.linearRampToValueAtTime(0.22, now + 0.2);
+      g.gain.linearRampToValueAtTime(0, now + 2.2);
+      osc.connect(g).connect(this.master);
+      osc.start(now);
+      osc.stop(now + 2.3);
+    }
+  }
+
   stopAll() {
     if (this.heartbeatTimer !== null) {
       window.clearInterval(this.heartbeatTimer);
