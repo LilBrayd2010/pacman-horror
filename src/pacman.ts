@@ -130,8 +130,13 @@ export class Pacman {
   }
 
   update(dt: number, playerPos: THREE.Vector3): PacmanUpdate {
-    // chomp animation — faster when closer AND we're actively chasing.
-    const dist = this.position.distanceTo(playerPos);
+    // Use horizontal (XZ) distance only. Pac-Man lives at y=1.1 and the
+    // player camera at y=1.55, so the 3D distance is always inflated by
+    // ~0.45 units — that was tightening the effective catch radius from
+    // 0.65 to ~0.47 and weakening proximity-based tension.
+    const dxCatch = this.position.x - playerPos.x;
+    const dzCatch = this.position.z - playerPos.z;
+    const dist = Math.hypot(dxCatch, dzCatch);
     const canSee = this.canSeePlayer(playerPos);
 
     // ---- state machine ---------------------------------------------------

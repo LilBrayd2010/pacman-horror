@@ -87,6 +87,20 @@ export class Game {
   /** Seconds remaining on the shield-absorb speed penalty; Pac-Man's speed is
    * restored when this hits 0 so repeated shield hits don't compound. */
   private shieldFlingTimer = 0;
+
+  /** Flashlight spotlight + its aim target. Added to the scene in enterFloor
+   * (per-floor rebuild) and aimed at the player's look direction every tick. */
+  private flashlight: THREE.SpotLight | null = null;
+  private flashlightTarget: THREE.Object3D | null = null;
+  private flashlightOn = false;
+  /** 0..1 battery charge. Drains while on, regenerates (slower) while off.
+   * Auto-switches off when drained. */
+  flashlightBattery = 1;
+  private readonly FLASHLIGHT_DRAIN = 1 / 70;  // ~70s of continuous on
+  private readonly FLASHLIGHT_REGEN = 1 / 110; // ~110s to fully recharge
+  /** Called whenever the flashlight state or battery changes so the HUD can
+   * reflect it. main.ts installs this via setFlashlightChangeListener. */
+  private flashlightListener: ((on: boolean, battery: number) => void) | null = null;
   private cbs: GameCallbacks;
   private run: RunState | null = null;
   private shardsCollected = 0;
@@ -112,6 +126,13 @@ export class Game {
     this.audio = new AudioEngine();
 
     window.addEventListener('resize', this.onResize);
+
+    // QoL: auto-pause when the tab loses focus so the hunter doesn't keep
+    // running while the player is elsewhere. Reuses the settings-paused path
+    // so clock/timer logic is consistent with opening the settings panel.
+    window.addEventListener('blur', () => {
+      if (this.hasActiveRun()) this.setSettingsPaused(true);
+    });
   }
 
   private onResize = () => {
@@ -211,6 +232,21 @@ export class Game {
     this.ghostLight.position.set(startW.x, 1.5, startW.z);
     this.scene.add(this.ghostLight);
 
+    // Flashlight: warm-white spotlight attached to the camera's position.
+    // Rebuilt every floor because clearScene() wipes the scene graph.
+    this.flashlight = new THREE.SpotLight(
+      0xfff1c2,
+      this.flashlightOn && this.flashlightBattery > 0 ? 3.4 : 0,
+      22,
+      Math.PI / 7,
+      0.35,
+      1.6,
+    );
+    this.flashlightTarget = new THREE.Object3D();
+    this.scene.add(this.flashlight);
+    this.scene.add(this.flashlightTarget);
+    this.flashlight.target = this.flashlightTarget;
+
     this.player = new Player({
       maze: this.maze,
       startX: startW.x,
@@ -306,12 +342,38 @@ export class Game {
 
     this.applyDevToggles();
 
+    // Edge-triggered flashlight toggle (F key on desktop, mobile button).
+    if (this.controls.consumeFlashlightToggle()) this.toggleFlashlight();
+
     const mouseDelta = this.controls.sample();
     this.player.update(dt, this.controls.state, mouseDelta, this.run.modifiers);
     this.player.applyToCamera(this.camera);
     if (this.ghostLight) {
       this.ghostLight.position.copy(this.player.position);
       this.ghostLight.distance = 5.5 * this.run.modifiers.ghostLightRangeMul;
+    }
+
+    // Flashlight battery + tracking
+    if (this.flashlight && this.flashlightTarget) {
+      // Battery tick
+      let batteryChanged = false;
+      if (this.flashlightOn) {
+        const prev = this.flashlightBattery;
+        this.flashlightBattery = Math.max(0, this.flashlightBattery - this.FLASHLIGHT_DRAIN * dt);
+        if (this.flashlightBattery !== prev) batteryChanged = true;
+        if (this.flashlightBattery === 0) {
+          this.flashlightOn = false;
+          this.flashlight.intensity = 0;
+        }
+      } else if (this.flashlightBattery < 1) {
+        this.flashlightBattery = Math.min(1, this.flashlightBattery + this.FLASHLIGHT_REGEN * dt);
+        batteryChanged = true;
+      }
+      if (batteryChanged) this.flashlightListener?.(this.flashlightOn, this.flashlightBattery);
+      // Position + aim: origin at camera, target one unit ahead along look dir.
+      this.flashlight.position.copy(this.camera.position);
+      const dir = new THREE.Vector3(0, 0, -1).applyQuaternion(this.camera.quaternion);
+      this.flashlightTarget.position.copy(this.camera.position).add(dir);
     }
 
     // Restore full Pac-Man speed after a shield-fling penalty expires.
@@ -543,6 +605,33 @@ export class Game {
     if (this.pacman) {
       this.pacman.speed = this.pacman.baseSpeed * (on ? 0.4 : 1) * (1 - this.pacman.weakened * 0.35);
     }
+  }
+
+  /** Toggle the player flashlight. Called by the F key (desktop), the mobile
+   * button, or the HUD icon. Auto-forces off when the battery is drained. */
+  toggleFlashlight() {
+    if (!this.flashlight) return;
+    // Block turning on when the battery is fully drained — would just flicker.
+    if (!this.flashlightOn && this.flashlightBattery <= 0.01) return;
+    this.flashlightOn = !this.flashlightOn;
+    this.flashlight.intensity = this.flashlightOn ? 3.4 : 0;
+    this.flashlightListener?.(this.flashlightOn, this.flashlightBattery);
+  }
+
+  isFlashlightOn(): boolean {
+    return this.flashlightOn;
+  }
+
+  setFlashlightChangeListener(fn: (on: boolean, battery: number) => void) {
+    this.flashlightListener = fn;
+  }
+
+  /** Proxy look-sensitivity + invert-Y settings to the live Controls instance. */
+  setLookSensitivity(v: number) {
+    this.controls.setLookSensitivity(v);
+  }
+  setInvertPitch(on: boolean) {
+    this.controls.setInvertPitch(on);
   }
 
   /** Boost orb visibility by enlarging the glow sprite + its point-light range. */

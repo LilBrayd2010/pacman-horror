@@ -91,6 +91,10 @@
           </div>
           <div class="hud-right">
             <div class="hud-stamina-wrap"><div id="hud-stamina-bar"></div></div>
+            <div id="hud-flashlight" class="hud-flashlight" aria-label="Flashlight battery">
+              <span class="hud-flashlight-icon">🔦</span>
+              <div class="hud-flashlight-track"><div id="hud-flashlight-fill"></div></div>
+            </div>
             <div id="hud-shieldicon" class="hud-shieldicon hidden">SHIELD</div>
             <button id="hud-settings-btn" class="hud-settings-btn" aria-label="Settings">⚙</button>
           </div>
@@ -116,6 +120,7 @@
             <div class="touch-stick" id="touch-right-knob"></div>
           </div>
           <button id="touch-sprint">SPRINT</button>
+          <button id="touch-flashlight" aria-label="Flashlight">🔦</button>
         </div>
       </div>
 
@@ -166,6 +171,23 @@
                   <span class="set-val" id="set-fov-val">75°</span>
                 </div>
                 <div class="set-hint">Wider FOV shows more of the maze but makes Pac-Man look smaller.</div>
+              </div>
+              <div class="set-row">
+                <label for="set-look-sens">Look sensitivity</label>
+                <div class="set-ctrl">
+                  <input type="range" id="set-look-sens" min="25" max="300" step="5" value="100" />
+                  <span class="set-val" id="set-look-sens-val">100%</span>
+                </div>
+                <div class="set-hint">Multiplies mouse + right-stick look speed.</div>
+              </div>
+              <div class="set-row">
+                <label for="set-invert-y">Invert look Y</label>
+                <div class="set-ctrl">
+                  <label class="dev-chk inline">
+                    <input type="checkbox" id="set-invert-y" />
+                    <span>Pull down = look up</span>
+                  </label>
+                </div>
               </div>
             </div>
 

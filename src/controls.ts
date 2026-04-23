@@ -37,6 +37,17 @@ export class Controls {
 
   private canvas: HTMLCanvasElement;
 
+  /** Edge-triggered flashlight toggle. Set true on F keydown or mobile button
+   * press; cleared the next time the game loop samples via
+   * `consumeFlashlightToggle()`. Prevents the toggle from firing every frame
+   * while the key is held down. */
+  private flashlightPending = false;
+
+  /** Look-sensitivity multiplier (mouse + right stick). 1.0 = default. */
+  lookSensitivity = 1;
+  /** When true, pitch is inverted (pull-down = look-up). */
+  invertPitch = false;
+
   constructor(canvas: HTMLCanvasElement) {
     this.canvas = canvas;
     this.attachKeyboard();
@@ -48,6 +59,9 @@ export class Controls {
     window.addEventListener('keydown', (e) => {
       this.keys.add(e.code);
       if (e.code === 'ShiftLeft' || e.code === 'ShiftRight') this.state.sprint = true;
+      // Flashlight toggle — fire once per press (keydown repeats when held,
+      // so guard by checking we don't re-fire for the same held key).
+      if (e.code === 'KeyF' && !e.repeat) this.flashlightPending = true;
     });
     window.addEventListener('keyup', (e) => {
       this.keys.delete(e.code);
@@ -194,6 +208,18 @@ export class Controls {
     // when it doesn't (iOS quirks), the window fallback above covers us.
   }
 
+  /** Read + clear the edge-triggered flashlight toggle. */
+  consumeFlashlightToggle(): boolean {
+    const v = this.flashlightPending;
+    this.flashlightPending = false;
+    return v;
+  }
+
+  /** Programmatic toggle — called by the mobile flashlight button. */
+  requestFlashlightToggle() {
+    this.flashlightPending = true;
+  }
+
   /** Check if running on a touch-primary device and show touch controls accordingly. */
   static isTouchDevice(): boolean {
     return (
@@ -267,18 +293,30 @@ export class Controls {
       my /= len;
     }
 
+    // Apply look-sensitivity + invert-Y here so every downstream consumer
+    // (mouse, right stick, gamepad) gets the same treatment.
+    const sens = this.lookSensitivity;
+    const pitchSign = this.invertPitch ? -1 : 1;
     this.state.moveX = mx;
     this.state.moveY = my;
-    this.state.lookX = lx;
-    this.state.lookY = ly;
+    this.state.lookX = lx * sens;
+    this.state.lookY = ly * sens * pitchSign;
     this.state.sprint =
       this.keys.has('ShiftLeft') || this.keys.has('ShiftRight') || this.sprintTouched || padSprint;
 
-    const lookDX = this.mouseDeltaX;
-    const lookDY = this.mouseDeltaY;
+    const lookDX = this.mouseDeltaX * sens;
+    const lookDY = this.mouseDeltaY * sens * pitchSign;
     this.mouseDeltaX = 0;
     this.mouseDeltaY = 0;
     return { lookDX, lookDY };
+  }
+
+  /** Expose the live controls so settings.ts can tune sensitivity/invert-Y. */
+  setLookSensitivity(v: number) {
+    this.lookSensitivity = Math.max(0.25, Math.min(3, v));
+  }
+  setInvertPitch(on: boolean) {
+    this.invertPitch = on;
   }
 
   isPointerLocked() {

@@ -23,6 +23,8 @@ interface Settings {
   hudScale: number;      // 0.75 .. 1.6
   fov: number;           // 60 .. 100
   masterVol: number;     // 0 .. 1
+  lookSensitivity: number; // 0.25 .. 3
+  invertY: boolean;
 }
 
 const DEFAULT_SETTINGS: Settings = {
@@ -31,6 +33,8 @@ const DEFAULT_SETTINGS: Settings = {
   hudScale: 1.0,
   fov: 75,
   masterVol: 0.8,
+  lookSensitivity: 1,
+  invertY: false,
 };
 
 function loadSettings(): Settings {
@@ -73,6 +77,8 @@ export function installSettingsPanel(game: Game): void {
     document.documentElement.style.setProperty('--joystick-scale', String(settings.joystickScale));
     document.documentElement.style.setProperty('--hud-scale', String(settings.hudScale));
     game.audio.setMasterVolume(settings.masterVol);
+    game.setLookSensitivity(settings.lookSensitivity);
+    game.setInvertPitch(settings.invertY);
   };
   apply();
 
@@ -167,6 +173,20 @@ export function installSettingsPanel(game: Game): void {
     audio?.setMasterVolume?.(v);
     saveSettings(settings);
   }, settings.masterVol);
+
+  bindSlider('set-look-sens', 'set-look-sens-val', '%', 100, (v) => {
+    settings.lookSensitivity = v;
+    game.setLookSensitivity(v);
+    saveSettings(settings);
+  }, settings.lookSensitivity);
+
+  const invertYInput = $<HTMLInputElement>('set-invert-y');
+  invertYInput.checked = settings.invertY;
+  invertYInput.addEventListener('change', () => {
+    settings.invertY = invertYInput.checked;
+    game.setInvertPitch(invertYInput.checked);
+    saveSettings(settings);
+  });
 
   // =====================================================================
   // Dev tools

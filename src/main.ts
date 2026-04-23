@@ -171,10 +171,20 @@ function main() {
     miniFill.style.width = '0%';
     activeUpgradesEl.innerHTML = '';
     shieldIcon.classList.add('hidden');
+    try { localStorage.setItem('soulchase.lastDifficulty', difficulty); } catch { /* ignore */ }
     game.startRun(difficulty);
   };
 
+  // Restore + highlight last chosen difficulty so the player doesn't have to
+  // re-select on every run. Storage key is isolated from the main settings blob.
+  let lastDifficulty: Difficulty | null = null;
+  try {
+    const stored = localStorage.getItem('soulchase.lastDifficulty');
+    if (stored === 'easy' || stored === 'medium' || stored === 'hard') lastDifficulty = stored;
+  } catch { /* ignore */ }
+
   for (const btn of document.querySelectorAll<HTMLButtonElement>('.diff-btn')) {
+    if (btn.dataset.difficulty === lastDifficulty) btn.classList.add('last-chosen');
     btn.addEventListener('click', () => {
       const diff = btn.dataset.difficulty as Difficulty;
       beginRun(diff);
@@ -225,6 +235,27 @@ function main() {
 
   // -------- settings panel (openable from title + HUD) --------
   installSettingsPanel(game);
+
+  // -------- flashlight: HUD battery indicator + mobile button wiring --------
+  const flashlightWrap = $('hud-flashlight');
+  const flashlightFill = $('hud-flashlight-fill');
+  const touchFlashlight = document.getElementById('touch-flashlight') as HTMLButtonElement | null;
+  game.setFlashlightChangeListener((on, battery) => {
+    flashlightWrap.classList.toggle('on', on);
+    flashlightWrap.classList.toggle('empty', battery <= 0.01);
+    flashlightFill.style.width = `${Math.round(Math.max(0, Math.min(1, battery)) * 100)}%`;
+    flashlightFill.classList.toggle('low', battery < 0.25);
+    if (touchFlashlight) {
+      touchFlashlight.classList.toggle('active', on);
+      touchFlashlight.classList.toggle('empty', battery <= 0.01);
+    }
+  });
+  if (touchFlashlight) {
+    touchFlashlight.addEventListener('pointerdown', (e) => {
+      e.preventDefault();
+      game.toggleFlashlight();
+    });
+  }
 
   // Dev-tool "preview cutscene from title" event — plays the same cutscene pipeline
   // with no active run, then returns to the title screen.

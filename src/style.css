@@ -153,6 +153,10 @@ body,
   outline: none;
   transform: translateX(4px);
 }
+.diff-btn.last-chosen {
+  border-color: var(--accent);
+  box-shadow: 0 0 0 1px rgba(255, 212, 0, 0.35), 0 0 18px rgba(255, 212, 0, 0.18);
+}
 .diff-btn[data-difficulty='hard']:hover {
   background: rgba(120, 0, 0, 0.6);
 }
@@ -337,6 +341,78 @@ body,
 #touch-sprint.active {
   background: rgba(200, 0, 0, 0.9);
   transform: scale(0.95);
+}
+
+/* Mobile flashlight button — parks just above the sprint button so both
+ * thumb-reachable controls sit in the same bottom-right cluster. */
+#touch-flashlight {
+  position: absolute;
+  right: 20px;
+  bottom: calc(min(calc(40vw + 40px), 240px) + 92px);
+  width: 60px;
+  height: 60px;
+  border-radius: 50%;
+  background: rgba(0, 0, 0, 0.55);
+  border: 2px solid rgba(255, 230, 160, 0.55);
+  color: #ffe69e;
+  font-family: inherit;
+  font-size: 24px;
+  cursor: pointer;
+  pointer-events: auto;
+  touch-action: none;
+  user-select: none;
+  -webkit-user-select: none;
+  -webkit-touch-callout: none;
+  z-index: 2;
+}
+#touch-flashlight.active {
+  background: rgba(255, 230, 160, 0.35);
+  border-color: #fff1c2;
+  box-shadow: 0 0 18px rgba(255, 241, 194, 0.7);
+}
+#touch-flashlight.empty {
+  opacity: 0.4;
+  border-color: rgba(200, 200, 200, 0.3);
+  color: #999;
+}
+
+/* HUD flashlight battery indicator — sits in the top-right cluster next to
+ * the stamina bar. The battery fill color flips amber→red as it drains. */
+.hud-flashlight {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 14px;
+  opacity: 0.8;
+}
+.hud-flashlight.on { opacity: 1; }
+.hud-flashlight.on .hud-flashlight-icon {
+  text-shadow: 0 0 8px rgba(255, 241, 194, 0.9);
+}
+.hud-flashlight.empty { opacity: 0.5; }
+.hud-flashlight-track {
+  width: 60px;
+  height: 5px;
+  background: rgba(255, 255, 255, 0.15);
+  border: 1px solid rgba(255, 255, 255, 0.25);
+  border-radius: 3px;
+  overflow: hidden;
+}
+#hud-flashlight-fill {
+  height: 100%;
+  width: 100%;
+  background: linear-gradient(90deg, #ffd47a, #fff1c2);
+  transition: width 0.15s linear;
+}
+#hud-flashlight-fill.low { background: linear-gradient(90deg, #c24, #e84); }
+
+/* Compact inline checkbox variant used inside settings rows. */
+.dev-chk.inline {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  cursor: pointer;
+  font-size: 13px;
 }
 
 /* End screens */

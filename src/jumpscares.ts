@@ -136,17 +136,26 @@ function drawVariant(ctx: CanvasRenderingContext2D, id: JumpscareId, w: number, 
 
 // ---------- shared helpers ---------------------------------------------------
 
-function pacmanHead(ctx: CanvasRenderingContext2D, cx: number, cy: number, r: number, mouthOpen: number) {
-  // base yellow disc — standard Pac-Man silhouette with the wedge carved out
+function pacmanHead(
+  ctx: CanvasRenderingContext2D,
+  cx: number,
+  cy: number,
+  r: number,
+  mouthOpen: number,
+  fillColor = '#f6d21a',
+  mouthColor = '#0a0000',
+) {
+  // disc with a wedge carved out. Callers pass `fillColor='#000'` (plus the
+  // matching mouth color) when they want a silhouette; default is the standard
+  // Pac-Man yellow.
   const mouth = mouthOpen * Math.PI * 0.45;
-  ctx.fillStyle = '#f6d21a';
+  ctx.fillStyle = fillColor;
   ctx.beginPath();
   ctx.moveTo(cx, cy);
   ctx.arc(cx, cy, r, mouth, Math.PI * 2 - mouth);
   ctx.closePath();
   ctx.fill();
-  // dark interior of mouth
-  ctx.fillStyle = '#0a0000';
+  ctx.fillStyle = mouthColor;
   ctx.beginPath();
   ctx.moveTo(cx, cy);
   ctx.lineTo(cx + Math.cos(-mouth) * r, cy + Math.sin(-mouth) * r);
@@ -281,8 +290,7 @@ function drawStaticBurst(ctx: CanvasRenderingContext2D, w: number, h: number, t:
   const cy = h / 2;
   const r = Math.min(w, h) * 0.35;
   ctx.globalAlpha = 0.75;
-  ctx.fillStyle = '#000';
-  pacmanHead(ctx, cx, cy, r, 0.9);
+  pacmanHead(ctx, cx, cy, r, 0.9, '#000', '#000');
   ctx.globalAlpha = 1;
   // red scan line sweep
   const y = (t * h) | 0;
@@ -323,8 +331,7 @@ function drawChompSilhouette(ctx: CanvasRenderingContext2D, w: number, h: number
   ctx.fillRect(0, 0, w, h);
   const r = Math.min(w, h) * (0.28 + t * 0.08);
   const mouth = 0.4 + Math.sin(t * 30) * 0.6;
-  ctx.fillStyle = '#000';
-  pacmanHead(ctx, cx, cy, r, Math.max(0.2, mouth));
+  pacmanHead(ctx, cx, cy, r, Math.max(0.2, mouth), '#000', '#000');
 }
 
 function drawInvertedGrin(ctx: CanvasRenderingContext2D, w: number, h: number, t: number) {
