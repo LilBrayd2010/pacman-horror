@@ -376,6 +376,25 @@ body,
   color: #999;
 }
 
+/* Landscape phones — viewport height becomes the limiting factor, so the
+ * default "stack the sprint + flashlight buttons ABOVE the right joystick"
+ * layout pushes them off the top of the screen (and can collide with the
+ * iOS notch / address bar). In landscape, reposition both buttons to the
+ * LEFT of the right joystick pad instead, stacked vertically, where
+ * there's plenty of horizontal room. The math reuses the same
+ * `min(40vw * scale, 200px * scale)` pad-size clamp as `.touch-zone`
+ * so the buttons track the actual joystick footprint regardless of scale. */
+@media (orientation: landscape) and (max-height: 520px) {
+  #touch-sprint {
+    right: calc(20px + min(40vw * var(--joystick-scale), 200px * var(--joystick-scale)) + 20px);
+    bottom: calc(20px + env(safe-area-inset-bottom, 0));
+  }
+  #touch-flashlight {
+    right: calc(20px + min(40vw * var(--joystick-scale), 200px * var(--joystick-scale)) + 30px);
+    bottom: calc(20px + env(safe-area-inset-bottom, 0) + 92px);
+  }
+}
+
 /* HUD flashlight battery indicator — sits in the top-right cluster next to
  * the stamina bar. The battery fill color flips amber→red as it drains. */
 .hud-flashlight {
