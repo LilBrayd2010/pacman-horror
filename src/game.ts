@@ -81,6 +81,11 @@ export class Game {
   private running = false;
   private paused = false;
   private settingsPaused = false;
+  /** True when the blur handler was what paused the game, so the matching
+   * focus handler can safely resume. If the player manually opened settings
+   * and THEN tabbed away, blur early-returns and this stays false, so
+   * tabbing back won't yank them out of the settings panel. */
+  private blurPaused = false;
   private raf = 0;
   private chompTimer = 0;
   private breathTimer = 0;
@@ -130,8 +135,19 @@ export class Game {
     // QoL: auto-pause when the tab loses focus so the hunter doesn't keep
     // running while the player is elsewhere. Reuses the settings-paused path
     // so clock/timer logic is consistent with opening the settings panel.
+    // Tracks `blurPaused` so the focus handler only resumes what blur paused
+    // (not, say, an open settings panel or upgrade prompt).
     window.addEventListener('blur', () => {
-      if (this.hasActiveRun()) this.setSettingsPaused(true);
+      if (this.hasActiveRun() && !this.paused) {
+        this.setSettingsPaused(true);
+        this.blurPaused = true;
+      }
+    });
+    window.addEventListener('focus', () => {
+      if (this.blurPaused) {
+        this.blurPaused = false;
+        this.setSettingsPaused(false);
+      }
     });
   }
 
@@ -541,6 +557,13 @@ export class Game {
     this.shardsCollected = 0;
     this.descentFx = null;
     this.paused = false;
+    this.blurPaused = false;
+    // A brand-new run should always start with a fully-charged flashlight,
+    // switched off — otherwise the previous run's end-state leaks forward
+    // (enterFloor reads both values when it (re)builds the SpotLight).
+    this.flashlightOn = false;
+    this.flashlightBattery = 1;
+    this.flashlightListener?.(false, 1);
   }
 
   // ===================================================================
