@@ -1,0 +1,25 @@
+{
+  "name": "pacman-horror",
+  "version": "1.0.0",
+  "main": "index.js",
+  "scripts": {
+    "test": "echo \"Error: no test specified\" && exit 1",
+    "dev": "vite",
+    "build": "vite build",
+    "preview": "vite preview",
+    "lint": "tsc --noEmit"
+  },
+  "keywords": [],
+  "author": "",
+  "license": "ISC",
+  "description": "",
+  "type": "module",
+  "dependencies": {
+    "three": "^0.184.0"
+  },
+  "devDependencies": {
+    "@types/three": "^0.184.0",
+    "typescript": "^6.0.3",
+    "vite": "^8.0.9"
+  }
+}
