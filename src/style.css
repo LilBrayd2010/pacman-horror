@@ -48,15 +48,19 @@ body,
   inset: 0;
   display: flex;
   flex-direction: column;
-  justify-content: center;
+  justify-content: safe center;
   align-items: center;
   background:
     radial-gradient(ellipse at center, rgba(60, 0, 0, 0.35) 0%, rgba(0, 0, 0, 0.96) 70%),
     #000;
   z-index: 10;
-  padding: 24px;
+  padding: max(18px, env(safe-area-inset-top, 0)) 18px max(18px, env(safe-area-inset-bottom, 0));
   text-align: center;
   animation: flicker 4s infinite;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  touch-action: pan-y;
+  -webkit-overflow-scrolling: touch;
 }
 
 .hidden {
@@ -263,13 +267,13 @@ body,
 }
 
 /* Mobile touch controls */
+/* The wrapper stays click-through; only the actual joystick zones and the sprint
+ * button receive input. Otherwise the full-screen wrapper would swallow taps
+ * meant for HUD controls like the settings gear. */
 #touch-controls {
   position: absolute;
   inset: 0;
   pointer-events: none;
-}
-#touch-controls:not(.hidden) {
-  pointer-events: auto;
 }
 .touch-zone {
   position: absolute;
@@ -277,11 +281,14 @@ body,
   max-width: calc(200px * var(--joystick-scale));
   height: calc(40vw * var(--joystick-scale));
   max-height: calc(200px * var(--joystick-scale));
-  bottom: 20px;
+  bottom: calc(20px + env(safe-area-inset-bottom, 0));
   border-radius: 50%;
   background: rgba(255, 255, 255, 0.05);
   border: 1px solid rgba(255, 255, 255, 0.1);
   touch-action: none;
+  pointer-events: auto;
+  -webkit-user-select: none;
+  user-select: none;
 }
 #touch-left { left: 20px; }
 #touch-right { right: 20px; }
@@ -327,10 +334,13 @@ body,
 
 /* End screens */
 .end-title {
-  font-size: clamp(40px, 10vw, 80px);
-  letter-spacing: 0.2em;
+  font-size: clamp(32px, 9vw, 80px);
+  letter-spacing: 0.15em;
   font-weight: 900;
-  margin-bottom: 16px;
+  margin-bottom: 12px;
+  line-height: 1.05;
+  word-break: break-word;
+  max-width: 100%;
 }
 .end-title.win {
   color: var(--ghost);
@@ -930,14 +940,15 @@ body,
   background: rgba(0, 0, 0, 0.5);
   border: 1px solid #333;
   color: #aaa;
-  width: 36px;
-  height: 36px;
-  font-size: 18px;
+  width: 44px;
+  height: 44px;
+  font-size: 22px;
   cursor: pointer;
   border-radius: 2px;
   padding: 0;
   line-height: 1;
   transition: border-color 0.15s, color 0.15s;
+  touch-action: manipulation;
 }
 .hud-settings-btn:hover {
   border-color: var(--accent);
@@ -954,12 +965,13 @@ body,
 .settings-window {
   width: 100%;
   max-width: 680px;
-  max-height: 92vh;
+  max-height: min(92vh, 100dvh);
   background: rgba(8, 8, 12, 0.96);
   border: 1px solid #2a2a32;
   display: flex;
   flex-direction: column;
   overflow: hidden;
+  margin: auto;
 }
 .settings-head {
   display: flex;
@@ -978,10 +990,12 @@ body,
   background: transparent;
   color: #888;
   border: none;
-  font-size: 28px;
+  font-size: 32px;
   line-height: 1;
   cursor: pointer;
-  padding: 0 4px;
+  padding: 4px 12px;
+  min-width: 44px;
+  min-height: 44px;
 }
 .settings-close:hover { color: var(--fg); }
 
@@ -995,7 +1009,8 @@ body,
   color: #888;
   border: none;
   border-bottom: 2px solid transparent;
-  padding: 10px;
+  padding: 14px 6px;
+  min-height: 44px;
   font-family: inherit;
   font-size: 12px;
   letter-spacing: 0.2em;
@@ -1012,6 +1027,9 @@ body,
 .settings-body {
   padding: 18px;
   overflow-y: auto;
+  overscroll-behavior: contain;
+  touch-action: pan-y;
+  -webkit-overflow-scrolling: touch;
   flex: 1;
 }
 .set-pane { display: none; }
@@ -1140,7 +1158,8 @@ body,
   background: rgba(20, 20, 24, 0.9);
   border: 1px solid #3a3a40;
   color: var(--fg);
-  padding: 7px 14px;
+  padding: 10px 14px;
+  min-height: 40px;
   font-family: inherit;
   font-size: 12px;
   letter-spacing: 0.15em;
@@ -1164,13 +1183,18 @@ body,
 .dev-chk {
   display: flex;
   align-items: center;
-  gap: 8px;
-  font-size: 12px;
+  gap: 10px;
+  min-height: 36px;
+  font-size: 13px;
   color: #bbb;
   letter-spacing: 0.1em;
   cursor: pointer;
 }
-.dev-chk input { accent-color: var(--accent); }
+.dev-chk input {
+  accent-color: var(--accent);
+  width: 20px;
+  height: 20px;
+}
 .dev-state {
   font-size: 11px;
   color: #666;
@@ -1180,4 +1204,29 @@ body,
   padding: 8px;
   background: rgba(0, 0, 0, 0.4);
   border: 1px solid #222;
+}
+
+/* ===================================================================
+ * Narrow-viewport (mobile portrait) adjustments
+ * =================================================================== */
+@media (max-width: 540px) {
+  .overlay { padding: 14px 12px; }
+  .title-art { margin-bottom: 20px; }
+  .menu { gap: 12px; }
+  .menu-btn { min-height: 52px; font-size: 16px; }
+  .diff-btn { min-height: 60px; padding: 12px 14px; font-size: 16px; }
+  .end-title { font-size: clamp(28px, 10vw, 56px); letter-spacing: 0.1em; }
+  .end-sub { font-size: 14px; }
+  .end-stats { font-size: 14px; }
+  .end-btn { min-height: 48px; padding: 12px 18px; font-size: 14px; }
+  .settings-window { max-height: 100dvh; border: none; }
+  .settings-head { padding: 12px 14px; }
+  .settings-title { font-size: 15px; letter-spacing: 0.25em; }
+  .set-tab { font-size: 11px; letter-spacing: 0.12em; padding: 14px 4px; }
+  .settings-body { padding: 14px; }
+  .dev-row { gap: 6px; }
+  .dev-btn { flex: 1 1 calc(50% - 6px); padding: 12px 10px; }
+  .dev-lock-row { flex-wrap: wrap; }
+  .dev-lock-row input { width: 100%; }
+  .dev-lock-row button { width: 100%; min-height: 44px; }
 }
