@@ -1,6 +1,7 @@
 import { Controls } from './controls';
 import { Game, type Difficulty, type RunStats } from './game';
-import type { Upgrade, UpgradeTier } from './upgrades';
+import { getAllUpgrades, type Upgrade, type UpgradeTier } from './upgrades';
+import { installSettingsPanel } from './settings';
 
 function $<T extends HTMLElement>(id: string): T {
   const el = document.getElementById(id);
@@ -14,7 +15,9 @@ const BIGGER_HUNTER_NAME = '{{BIGGER_HUNTER_NAME}}';
 
 function main() {
   const canvas = $<HTMLCanvasElement>('game-canvas');
+  const titleScreen = $('title-screen');
   const startScreen = $('start-screen');
+  const abilitiesScreen = $('abilities-screen');
   const hud = $('hud');
   const touchControls = $('touch-controls');
   const soulCountEl = $('hud-soul-count');
@@ -130,14 +133,23 @@ function main() {
     },
   });
 
+  // -------- screen navigation --------
+  const allOverlays = [titleScreen, startScreen, abilitiesScreen, loseScreen, cliffScreen];
+  const showScreen = (target: HTMLElement | null) => {
+    for (const o of allOverlays) {
+      if (!o) continue;
+      o.classList.add('hidden');
+      o.classList.remove('visible');
+    }
+    if (target) {
+      target.classList.remove('hidden');
+      target.classList.add('visible');
+    }
+  };
+
   // Start a run when a difficulty button is clicked
   const beginRun = (difficulty: Difficulty) => {
-    startScreen.classList.add('hidden');
-    startScreen.classList.remove('visible');
-    loseScreen.classList.add('hidden');
-    loseScreen.classList.remove('visible');
-    cliffScreen.classList.add('hidden');
-    cliffScreen.classList.remove('visible');
+    showScreen(null);
     hud.classList.remove('hidden');
     if (isTouch) touchControls.classList.remove('hidden');
     // reset hud state
@@ -157,18 +169,59 @@ function main() {
     });
   }
 
+  // Title -> sub-screens
+  $<HTMLButtonElement>('title-play').addEventListener('click', () => showScreen(startScreen));
+  $<HTMLButtonElement>('title-abilities').addEventListener('click', () => {
+    renderAbilities('mini');
+    showScreen(abilitiesScreen);
+  });
+  $<HTMLButtonElement>('start-back').addEventListener('click', () => showScreen(titleScreen));
+  $<HTMLButtonElement>('abilities-back').addEventListener('click', () => showScreen(titleScreen));
+
+  // Abilities tabs
+  for (const tab of document.querySelectorAll<HTMLButtonElement>('.ab-tab')) {
+    tab.addEventListener('click', () => {
+      for (const t of document.querySelectorAll('.ab-tab')) t.classList.remove('active');
+      tab.classList.add('active');
+      renderAbilities((tab.dataset.tier || 'mini') as UpgradeTier);
+    });
+  }
+
+  function renderAbilities(tier: UpgradeTier) {
+    const listEl = $('abilities-list');
+    const all = getAllUpgrades().filter((u) => u.tier === tier);
+    listEl.innerHTML = '';
+    for (const u of all) {
+      const card = document.createElement('div');
+      card.className = 'ab-card' + (tier === 'big' ? ' big' : '');
+      card.innerHTML = `
+        <div class="name">${escapeHtml(u.name)}</div>
+        <div class="up">${escapeHtml(u.upside)}</div>
+        <div class="down">${escapeHtml(u.downside)}</div>
+      `;
+      listEl.appendChild(card);
+    }
+  }
+
   const backToTitle = () => {
-    loseScreen.classList.add('hidden');
-    loseScreen.classList.remove('visible');
-    cliffScreen.classList.add('hidden');
-    cliffScreen.classList.remove('visible');
     hud.classList.add('hidden');
     touchControls.classList.add('hidden');
-    startScreen.classList.remove('hidden');
-    startScreen.classList.add('visible');
+    showScreen(titleScreen);
   };
   loseAgain.addEventListener('click', backToTitle);
   cliffAgain.addEventListener('click', backToTitle);
+
+  // -------- settings panel (openable from title + HUD) --------
+  installSettingsPanel(game);
+
+  // Dev-tool "preview cutscene from title" event — plays the same cutscene pipeline
+  // with no active run, then returns to the title screen.
+  document.addEventListener('soulchase:preview-cutscene', () => {
+    hud.classList.add('hidden');
+    touchControls.classList.add('hidden');
+    showScreen(null);
+    playCutscene().then(() => showScreen(titleScreen));
+  });
 
   function showUpgradePicker(tier: UpgradeTier, choices: Upgrade[]) {
     upgradeTierLabel.textContent = tier === 'mini' ? 'MINI UPGRADE' : 'BIG UPGRADE';
