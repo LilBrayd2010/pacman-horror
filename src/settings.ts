@@ -11,6 +11,7 @@
  * unusable without the password, so casual players never see them.
  */
 import type { Game } from './game';
+import { play as playJumpscare, playRandom as playRandomJumpscare, JUMPSCARE_COUNT, type JumpscareId } from './jumpscares';
 
 const STORAGE_KEY = 'soulchase.settings.v1';
 const DEV_STORAGE_KEY = 'soulchase.dev.unlocked';
@@ -71,21 +72,24 @@ export function installSettingsPanel(game: Game): void {
     game.setFov(settings.fov);
     document.documentElement.style.setProperty('--joystick-scale', String(settings.joystickScale));
     document.documentElement.style.setProperty('--hud-scale', String(settings.hudScale));
-    // master volume applied to the audio engine if it exposes a setter (optional chain)
-    const audio = (game as unknown as { audio?: { setMasterVolume?: (v: number) => void } }).audio;
-    audio?.setMasterVolume?.(settings.masterVol);
+    game.audio.setMasterVolume(settings.masterVol);
   };
   apply();
 
   // -------- open / close panel --------
+  // When opened mid-match, pause the run so the hunt doesn't keep ticking
+  // while the player tunes sliders. Title-screen opens are noops for the game
+  // clock because no run is active yet.
   const open = () => {
     panel.classList.remove('hidden');
     panel.classList.add('visible');
+    if (game.hasActiveRun()) game.setSettingsPaused(true);
     refreshDevState();
   };
   const close = () => {
     panel.classList.add('hidden');
     panel.classList.remove('visible');
+    game.setSettingsPaused(false);
   };
   openFromTitle.addEventListener('click', open);
   openFromHud.addEventListener('click', open);
@@ -257,6 +261,21 @@ export function installSettingsPanel(game: Game): void {
       document.dispatchEvent(new CustomEvent('soulchase:preview-cutscene'));
     }
   });
+
+  // ----- jumpscare previews (dev sampler for the 8 variants) -----
+  const jumpAudio = { play: (id: number) => game.audio.playScreamVariant(id) };
+  $<HTMLButtonElement>('dev-play-jumpscare-random').addEventListener('click', () => {
+    close();
+    void playRandomJumpscare(jumpAudio);
+  });
+  for (let i = 0; i < JUMPSCARE_COUNT; i++) {
+    const btn = document.getElementById(`dev-play-jumpscare-${i}`) as HTMLButtonElement | null;
+    if (!btn) continue;
+    btn.addEventListener('click', () => {
+      close();
+      void playJumpscare(i as JumpscareId, jumpAudio);
+    });
+  }
 
   $<HTMLButtonElement>('dev-play-floortitle').addEventListener('click', () => {
     const title = $('hud-floortitle');

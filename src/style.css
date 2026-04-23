@@ -1230,3 +1230,30 @@ body,
   .dev-lock-row input { width: 100%; }
   .dev-lock-row button { width: 100%; min-height: 44px; }
 }
+
+/* --- Jumpscare overlay ----------------------------------------------------
+ * Fills the entire viewport above every other UI layer when Pac-Man catches
+ * the player. Canvas renders one of 8 procedural variants; we fade the
+ * wrapper in/out and add a tiny shake so the catch feels abrupt. */
+.jumpscare-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 1000;
+  background: #000;
+  pointer-events: none;
+  animation: jumpscare-shake 0.18s cubic-bezier(.36,.07,.19,.97) 0s 5;
+}
+.jumpscare-overlay.hidden { display: none; }
+.jumpscare-overlay canvas {
+  display: block;
+  width: 100vw;
+  height: 100vh;
+}
+@keyframes jumpscare-shake {
+  0%, 100% { transform: translate(0, 0); }
+  20% { transform: translate(-6px, 4px); }
+  40% { transform: translate(5px, -3px); }
+  60% { transform: translate(-4px, -5px); }
+  80% { transform: translate(6px, 3px); }
+}
+

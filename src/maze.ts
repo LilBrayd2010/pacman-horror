@@ -271,3 +271,60 @@ export function gridToWorld(maze: MazeData, gx: number, gy: number): { x: number
     z: gy * maze.cellSize + maze.cellSize / 2,
   };
 }
+
+/**
+ * Line-of-sight check on the grid. Returns true if the straight segment from
+ * (ax,az) to (bx,bz) passes through no wall cells. Implemented via DDA raster
+ * traversal so it's O(|segment length| / cellSize).
+ */
+export function hasLineOfSight(
+  maze: MazeData,
+  ax: number,
+  az: number,
+  bx: number,
+  bz: number,
+): boolean {
+  const cs = maze.cellSize;
+  let x = ax / cs;
+  let z = az / cs;
+  const ex = bx / cs;
+  const ez = bz / cs;
+  const dx = ex - x;
+  const dz = ez - z;
+  const stepX = dx > 0 ? 1 : dx < 0 ? -1 : 0;
+  const stepZ = dz > 0 ? 1 : dz < 0 ? -1 : 0;
+  let cx = Math.floor(x);
+  let cz = Math.floor(z);
+  const targetCx = Math.floor(ex);
+  const targetCz = Math.floor(ez);
+  const tDeltaX = stepX === 0 ? Infinity : Math.abs(1 / dx);
+  const tDeltaZ = stepZ === 0 ? Infinity : Math.abs(1 / dz);
+  let tMaxX =
+    stepX === 0
+      ? Infinity
+      : (stepX > 0 ? Math.ceil(x) - x : x - Math.floor(x)) / Math.abs(dx);
+  let tMaxZ =
+    stepZ === 0
+      ? Infinity
+      : (stepZ > 0 ? Math.ceil(z) - z : z - Math.floor(z)) / Math.abs(dz);
+  // guard: if we start exactly on an integer boundary tMax can be 0; nudge so
+  // we don't spin forever on the first cell.
+  if (tMaxX === 0) tMaxX = tDeltaX;
+  if (tMaxZ === 0) tMaxZ = tDeltaZ;
+  // limit iterations so a degenerate input never hangs the main loop.
+  const maxIters = (maze.width + maze.height) * 2;
+  for (let i = 0; i < maxIters; i++) {
+    if (cx === targetCx && cz === targetCz) return true;
+    if (cx < 0 || cz < 0 || cx >= maze.width || cz >= maze.height) return false;
+    if (maze.grid[cz][cx] === 1) return false;
+    if (tMaxX < tMaxZ) {
+      tMaxX += tDeltaX;
+      cx += stepX;
+    } else {
+      tMaxZ += tDeltaZ;
+      cz += stepZ;
+    }
+    if (tMaxX > 1 && tMaxZ > 1) return true;
+  }
+  return true;
+}

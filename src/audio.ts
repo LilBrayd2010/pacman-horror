@@ -215,6 +215,105 @@ export class AudioEngine {
     n.stop(now + 1.0);
   }
 
+  /**
+   * Variant sting for the 8 jumpscares. Each ID picks a different waveform
+   * + frequency sweep + noise profile so back-to-back scares feel distinct.
+   * Falls back to `playScream` (classic sweep) for ID 0 so nothing regresses.
+   */
+  playScreamVariant(id: number) {
+    if (!this.ctx || !this.master || !this.noiseBuffer) return;
+    const now = this.ctx.currentTime;
+    const mk = (type: OscillatorType, f0: number, f1: number, dur: number, peak: number) => {
+      const osc = this.ctx!.createOscillator();
+      osc.type = type;
+      osc.frequency.setValueAtTime(f0, now);
+      osc.frequency.exponentialRampToValueAtTime(Math.max(30, f1), now + dur);
+      const g = this.ctx!.createGain();
+      g.gain.setValueAtTime(0, now);
+      g.gain.linearRampToValueAtTime(peak, now + 0.04);
+      g.gain.exponentialRampToValueAtTime(0.0001, now + dur + 0.05);
+      osc.connect(g).connect(this.master!);
+      osc.start(now);
+      osc.stop(now + dur + 0.1);
+    };
+    const noise = (dur: number, peak: number, filterHz: number, filterType: BiquadFilterType) => {
+      const n = this.ctx!.createBufferSource();
+      n.buffer = this.noiseBuffer!;
+      const f = this.ctx!.createBiquadFilter();
+      f.type = filterType;
+      f.frequency.value = filterHz;
+      const g = this.ctx!.createGain();
+      g.gain.setValueAtTime(0, now);
+      g.gain.linearRampToValueAtTime(peak, now + 0.05);
+      g.gain.exponentialRampToValueAtTime(0.0001, now + dur);
+      n.connect(f).connect(g).connect(this.master!);
+      n.start(now);
+      n.stop(now + dur + 0.05);
+    };
+    switch (id & 7) {
+      case 0: // classic scream
+        mk('sawtooth', 880, 110, 1.4, 0.45);
+        noise(0.8, 0.3, 3000, 'lowpass');
+        break;
+      case 1: // eye-lunge — high shriek with fast sweep down
+        mk('square', 1600, 220, 0.9, 0.35);
+        mk('sine', 80, 40, 1.1, 0.3);
+        break;
+      case 2: // TV static burst
+        noise(0.95, 0.55, 6000, 'highpass');
+        mk('sawtooth', 330, 110, 0.7, 0.2);
+        break;
+      case 3: // face distort — detuned double
+        mk('triangle', 520, 120, 1.0, 0.3);
+        mk('triangle', 540, 118, 1.0, 0.3);
+        noise(0.5, 0.15, 1500, 'bandpass');
+        break;
+      case 4: // chomp silhouette — rhythmic pulses
+        for (let i = 0; i < 4; i++) {
+          const osc = this.ctx.createOscillator();
+          osc.type = 'square';
+          const f = 400 - i * 60;
+          osc.frequency.setValueAtTime(f, now + i * 0.12);
+          const g = this.ctx.createGain();
+          g.gain.setValueAtTime(0, now + i * 0.12);
+          g.gain.linearRampToValueAtTime(0.28, now + i * 0.12 + 0.02);
+          g.gain.exponentialRampToValueAtTime(0.001, now + i * 0.12 + 0.09);
+          osc.connect(g).connect(this.master);
+          osc.start(now + i * 0.12);
+          osc.stop(now + i * 0.12 + 0.1);
+        }
+        noise(0.7, 0.2, 800, 'lowpass');
+        break;
+      case 5: // inverted grin — descending sub-bass growl
+        mk('sawtooth', 180, 45, 1.3, 0.45);
+        mk('triangle', 90, 30, 1.3, 0.3);
+        noise(0.9, 0.15, 400, 'lowpass');
+        break;
+      case 6: // bleeding — wet gurgle (two short noise pops)
+        noise(0.35, 0.4, 1200, 'bandpass');
+        mk('sine', 220, 80, 0.8, 0.25);
+        window.setTimeout(() => {
+          if (!this.ctx) return;
+          const t2 = this.ctx.currentTime;
+          const n = this.ctx.createBufferSource();
+          n.buffer = this.noiseBuffer!;
+          const g = this.ctx.createGain();
+          g.gain.setValueAtTime(0, t2);
+          g.gain.linearRampToValueAtTime(0.25, t2 + 0.02);
+          g.gain.exponentialRampToValueAtTime(0.001, t2 + 0.3);
+          n.connect(g).connect(this.master!);
+          n.start(t2);
+          n.stop(t2 + 0.35);
+        }, 220);
+        break;
+      case 7: // shatter — glass break (filtered noise + high chirp)
+        noise(0.45, 0.5, 5000, 'highpass');
+        mk('square', 2200, 800, 0.25, 0.2);
+        mk('sawtooth', 600, 150, 0.9, 0.3);
+        break;
+    }
+  }
+
   /** Final scream / jumpscare when caught. */
   playScream() {
     if (!this.ctx || !this.master || !this.noiseBuffer) return;

@@ -2,6 +2,7 @@ import { Controls } from './controls';
 import { Game, type Difficulty, type RunStats } from './game';
 import { getAllUpgrades, type Upgrade, type UpgradeTier } from './upgrades';
 import { installSettingsPanel } from './settings';
+import { playRandom as playRandomJumpscare } from './jumpscares';
 
 function $<T extends HTMLElement>(id: string): T {
   const el = document.getElementById(id);
@@ -124,9 +125,16 @@ function main() {
       hud.classList.add('hidden');
       if (isTouch) touchControls.classList.add('hidden');
       if (reason === 'lose') {
-        loseStats.innerHTML = renderStats(stats);
-        loseScreen.classList.remove('hidden');
-        loseScreen.classList.add('visible');
+        // Play a random 1-of-8 jumpscare BEFORE revealing the lose screen.
+        // The jumpscare module plays its own audio sting via game.audio so
+        // the picture and sound line up.
+        playRandomJumpscare({
+          play: (id) => game.audio.playScreamVariant(id),
+        }).then(() => {
+          loseStats.innerHTML = renderStats(stats);
+          loseScreen.classList.remove('hidden');
+          loseScreen.classList.add('visible');
+        });
       } else {
         // cliffhanger screen already shown via showCliffhangerScreen()
       }

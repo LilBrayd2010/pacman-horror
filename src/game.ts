@@ -67,7 +67,9 @@ export class Game {
   private renderer: THREE.WebGLRenderer;
   private clock = new THREE.Clock();
   private controls: Controls;
-  private audio: AudioEngine;
+  /** Exposed so main.ts can trigger jumpscare stings and settings.ts can
+   * adjust master volume without casting through `unknown`. */
+  audio: AudioEngine;
 
   private maze!: MazeData;
   private mazeMesh!: THREE.Group;
@@ -78,6 +80,7 @@ export class Game {
 
   private running = false;
   private paused = false;
+  private settingsPaused = false;
   private raf = 0;
   private chompTimer = 0;
   private breathTimer = 0;
@@ -98,9 +101,9 @@ export class Game {
 
     this.scene = new THREE.Scene();
     this.scene.background = new THREE.Color(0x000000);
-    this.scene.fog = new THREE.FogExp2(0x000000, 0.16);
+    this.scene.fog = new THREE.FogExp2(0x000000, 0.1);
 
-    this.camera = new THREE.PerspectiveCamera(75, window.innerWidth / window.innerHeight, 0.1, 50);
+    this.camera = new THREE.PerspectiveCamera(75, window.innerWidth / window.innerHeight, 0.1, 80);
 
     this.controls = new Controls(canvas);
     this.audio = new AudioEngine();
@@ -386,7 +389,10 @@ export class Game {
         this.pacman.position.z += (this.pacman.position.z - this.player.position.z) * 2;
         this.audio.playShardBreak();
       } else {
-        this.audio.playScream();
+        // Jumpscare audio + overlay are driven by main.ts so the lose screen
+        // can wait for the scare to finish before appearing. We still stop
+        // the loop here so Pac-Man can't rack up another catch in the
+        // meantime.
         this.running = false;
         this.cbs.onEnd('lose', this.buildStats());
         return;
@@ -453,6 +459,33 @@ export class Game {
   // ===================================================================
   // Settings / dev-tool surface. Consumed by the settings panel UI.
   // ===================================================================
+
+  /**
+   * True while there's an active run and we're not in an upgrade/descent
+   * modal. Used by settings.ts to decide whether to pause mid-match.
+   */
+  hasActiveRun(): boolean {
+    return this.running && this.run !== null;
+  }
+
+  /**
+   * Pause the active run while the settings modal is open, then resume when
+   * it closes. Noop if no run is active or we're already paused for another
+   * reason (upgrade card, descent). We reset the clock so the dt jump from
+   * the time spent in the menu doesn't teleport Pac-Man on resume.
+   */
+  setSettingsPaused(on: boolean) {
+    if (!this.run || !this.running) return;
+    if (on) {
+      if (this.paused) return; // already paused for upgrade/descent — don't overwrite
+      this.paused = true;
+      this.settingsPaused = true;
+    } else if (this.settingsPaused) {
+      this.settingsPaused = false;
+      this.paused = false;
+      this.clock.start();
+    }
+  }
 
   /** Scale the renderer's pixel ratio. Accepts 0.4..1.5 roughly. */
   setRenderScale(scale: number) {
