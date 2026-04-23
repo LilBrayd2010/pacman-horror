@@ -308,9 +308,12 @@ body,
 
 #touch-sprint {
   position: absolute;
+  /* Anchor relative to the right joystick so the button never drifts off
+   * the top of the viewport in landscape / fullscreen (where 40vw can get
+   * absurdly large). `min(...)` clamps the vertical offset on very wide
+   * viewports so sprint stays inside the usable screen. */
   right: 20px;
-  bottom: calc(40vw + 40px);
-  max-bottom: 240px;
+  bottom: min(calc(40vw + 40px), 240px);
   width: 80px;
   height: 80px;
   border-radius: 50%;
@@ -323,8 +326,12 @@ body,
   letter-spacing: 0.1em;
   cursor: pointer;
   pointer-events: auto;
+  touch-action: none;
   user-select: none;
   -webkit-user-select: none;
+  -webkit-touch-callout: none;
+  /* Ensure sprint floats above the joystick pads even after layout shifts. */
+  z-index: 2;
 }
 #touch-sprint:active,
 #touch-sprint.active {
@@ -381,12 +388,9 @@ body,
 .overlay.visible { display: flex; }
 .overlay.hidden { display: none; }
 
-/* Mobile layout tweaks */
-@media (max-width: 600px) {
-  #touch-sprint {
-    bottom: calc(40vw + 40px);
-  }
-}
+/* Mobile layout tweaks — the primary #touch-sprint rule above already handles
+ * narrow viewports via `min(calc(40vw + 40px), 240px)`, so no override needed
+ * here. Kept empty for backward-compat in case a future media query wants in. */
 
 /* Floor HUD additions */
 .title-floorhint {

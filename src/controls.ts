@@ -159,14 +159,39 @@ export class Controls {
       this.sprintTouched = on;
       sprintBtn.classList.toggle('active', on);
     };
+    // Track the active pointer id so we can reliably clear sprint on release
+    // even when the pointer event fires on window (iOS Safari sometimes loses
+    // pointerup on a captured button after a fullscreen/orientation change).
+    let sprintPointer: number | null = null;
     sprintBtn.addEventListener('pointerdown', (e) => {
-      sprintBtn.setPointerCapture(e.pointerId);
+      try {
+        sprintBtn.setPointerCapture(e.pointerId);
+      } catch {
+        // iOS occasionally throws if the pointer is mid-capture by another
+        // element; we still want sprint to engage via the window-level
+        // pointerup fallback below.
+      }
+      sprintPointer = e.pointerId;
       setSprint(true);
       e.preventDefault();
     });
-    sprintBtn.addEventListener('pointerup', () => setSprint(false));
-    sprintBtn.addEventListener('pointercancel', () => setSprint(false));
-    sprintBtn.addEventListener('pointerleave', () => setSprint(false));
+    const clearSprint = (e: PointerEvent) => {
+      if (sprintPointer !== null && e.pointerId !== sprintPointer) return;
+      sprintPointer = null;
+      setSprint(false);
+    };
+    sprintBtn.addEventListener('pointerup', clearSprint);
+    sprintBtn.addEventListener('pointercancel', clearSprint);
+    // Fallback: iOS Safari in fullscreen / landscape sometimes routes pointerup
+    // to window after a layout shift. Listen there too so sprint never gets
+    // stuck in the "on" state.
+    window.addEventListener('pointerup', clearSprint);
+    window.addEventListener('pointercancel', clearSprint);
+    // NOTE: we deliberately do NOT listen for `pointerleave`. With a light
+    // finger drift (common on mobile) the pointer can briefly leave the
+    // button bounds even while held — and `pointerleave` would flip sprint
+    // off. Pointer capture should keep events flowing to the button, and
+    // when it doesn't (iOS quirks), the window fallback above covers us.
   }
 
   /** Check if running on a touch-primary device and show touch controls accordingly. */
@@ -200,8 +225,13 @@ export class Controls {
       my = -this.leftStick.dy;
     }
     if (this.rightStick?.active) {
+      // On touch, the look joystick is horizontal-only (yaw). Vertical pitch
+      // from swiping up/down on the right pad felt disorienting and made it
+      // easy to accidentally look at the floor; keep the axis deliberately
+      // 1-D. Desktop arrow-up/down still pitches via the earlier keyboard
+      // branch.
       lx = this.rightStick.dx;
-      ly = this.rightStick.dy;
+      ly = 0;
     }
 
     // gamepad

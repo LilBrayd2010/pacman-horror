@@ -82,14 +82,13 @@ export class Player {
     // clamp stamina if cap shrank (e.g. Deep Lungs then a -cap upgrade)
     if (this.stamina > staminaCap) this.stamina = staminaCap;
 
-    // movement direction in world space. the three.js camera's default look
-    // direction is -Z, and applying yaw rotates that to (-sin(yaw),0,-cos(yaw))
-    // — so forward (the direction you're actually facing) is the negative of
-    // the sin/cos pair, and right = cross(up, forward).
+    // Movement basis in world space. Three.js cameras look at -Z by default,
+    // so for yaw=0 the player's forward is (0, 0, -1) and their right is
+    // (+1, 0, 0) — i.e. right = cross(forward, up) in a right-handed frame.
     const forwardX = -Math.sin(this.yaw);
     const forwardZ = -Math.cos(this.yaw);
-    const rightX = -Math.cos(this.yaw);
-    const rightZ = Math.sin(this.yaw);
+    const rightX = Math.cos(this.yaw);
+    const rightZ = -Math.sin(this.yaw);
 
     let vx = (forwardX * input.moveY + rightX * input.moveX) * baseSpeed;
     let vz = (forwardZ * input.moveY + rightZ * input.moveX) * baseSpeed;
