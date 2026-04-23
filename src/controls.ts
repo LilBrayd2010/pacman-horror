@@ -98,18 +98,27 @@ export class Controls {
     const bindStick = (stick: TouchStick) => {
       stick.el.addEventListener('pointerdown', (e) => {
         if (stick.active) return;
-        stick.el.setPointerCapture(e.pointerId);
+        try {
+          stick.el.setPointerCapture(e.pointerId);
+        } catch {
+          // Some browsers throw if the pointer is already captured elsewhere.
+          // The global pointermove listener below handles the fallback.
+        }
         stick.pointerId = e.pointerId;
         stick.active = true;
         const rect = stick.el.getBoundingClientRect();
         stick.radius = rect.width / 2;
-        stick.originX = rect.left + rect.width / 2;
-        stick.originY = rect.top + rect.height / 2;
+        // Floating origin: wherever the user first touched becomes the stick
+        // center. Gives full 360° travel in every direction without having
+        // to first drag the finger back to the visual center of the pad.
+        stick.originX = e.clientX;
+        stick.originY = e.clientY;
         stick.dx = 0;
         stick.dy = 0;
+        stick.knob.style.transform = 'translate(-50%, -50%)';
         e.preventDefault();
       });
-      stick.el.addEventListener('pointermove', (e) => {
+      const move = (e: PointerEvent) => {
         if (!stick.active || stick.pointerId !== e.pointerId) return;
         let dx = e.clientX - stick.originX;
         let dy = e.clientY - stick.originY;
@@ -122,7 +131,7 @@ export class Controls {
         stick.dx = dx / max;
         stick.dy = dy / max;
         stick.knob.style.transform = `translate(calc(-50% + ${dx}px), calc(-50% + ${dy}px))`;
-      });
+      };
       const release = (e: PointerEvent) => {
         if (stick.pointerId !== e.pointerId) return;
         stick.active = false;
@@ -131,9 +140,17 @@ export class Controls {
         stick.dy = 0;
         stick.knob.style.transform = 'translate(-50%, -50%)';
       };
+      // Listen at both the stick element AND window, so a finger that leaves
+      // the circular pad (e.g. dragging outside the visual bounds) still
+      // drives the stick until it's lifted. Without the window fallback,
+      // iOS Safari sometimes stops sending pointermove once the pointer exits
+      // the capturing element.
+      stick.el.addEventListener('pointermove', move);
+      window.addEventListener('pointermove', move);
       stick.el.addEventListener('pointerup', release);
       stick.el.addEventListener('pointercancel', release);
-      stick.el.addEventListener('pointerleave', release);
+      window.addEventListener('pointerup', release);
+      window.addEventListener('pointercancel', release);
     };
     bindStick(this.leftStick);
     bindStick(this.rightStick);

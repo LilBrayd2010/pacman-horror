@@ -15,15 +15,23 @@ export class AudioEngine {
   // heartbeat loop
   private heartbeatTimer: number | null = null;
 
+  private masterVolume = 0.7;
+
   /** Must be called from a user gesture (the difficulty-select click). */
   init() {
     if (this.ctx) return;
     const AC = window.AudioContext || (window as unknown as { webkitAudioContext: typeof AudioContext }).webkitAudioContext;
     this.ctx = new AC();
     this.master = this.ctx.createGain();
-    this.master.gain.value = 0.7;
+    this.master.gain.value = this.masterVolume;
     this.master.connect(this.ctx.destination);
     this.noiseBuffer = this.makeNoiseBuffer(2);
+  }
+
+  /** User-adjustable master gain, 0..1. Safe to call before init(). */
+  setMasterVolume(v: number) {
+    this.masterVolume = Math.max(0, Math.min(1, v));
+    if (this.master) this.master.gain.value = this.masterVolume;
   }
 
   private makeNoiseBuffer(seconds: number): AudioBuffer {

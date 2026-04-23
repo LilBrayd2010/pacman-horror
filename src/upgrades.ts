@@ -227,6 +227,11 @@ const BIG: Upgrade[] = [
 
 const ALL: Upgrade[] = [...MINI, ...BIG];
 
+/** All upgrades, for compendium / abilities-screen display. */
+export function getAllUpgrades(): readonly Upgrade[] {
+  return ALL;
+}
+
 /**
  * Roll N distinct upgrade choices of the given tier, optionally excluding IDs
  * the player already owns (stackable upgrades will appear anyway — the

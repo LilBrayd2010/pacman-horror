@@ -239,6 +239,10 @@ export class Game {
     this.cbs.onSoulUpdate(0, soulsNeeded);
     this.cbs.onStaminaUpdate(this.player.stamina);
     this.cbs.onMiniProgress(this.run.cumulativeSouls, this.soulsUntilNextMini());
+
+    // Re-apply persistent dev toggles to the freshly-built floor
+    if (this.slowPacman) this.setSlowPacman(true);
+    if (this.revealOrbs) this.setRevealOrbs(true);
   }
 
   private soulsUntilNextMini(): number {
@@ -293,6 +297,8 @@ export class Game {
       this.raf = requestAnimationFrame(this.loop);
       return;
     }
+
+    this.applyDevToggles();
 
     const mouseDelta = this.controls.sample();
     this.player.update(dt, this.controls.state, mouseDelta, this.run.modifiers);
@@ -443,4 +449,141 @@ export class Game {
     this.descentFx = null;
     this.paused = false;
   }
+
+  // ===================================================================
+  // Settings / dev-tool surface. Consumed by the settings panel UI.
+  // ===================================================================
+
+  /** Scale the renderer's pixel ratio. Accepts 0.4..1.5 roughly. */
+  setRenderScale(scale: number) {
+    const clamped = Math.max(0.4, Math.min(1.5, scale));
+    const effective = Math.min(window.devicePixelRatio * clamped, window.devicePixelRatio * 1.5);
+    this.renderer.setPixelRatio(effective);
+    this.renderer.setSize(window.innerWidth, window.innerHeight, false);
+  }
+
+  /** Adjust camera field of view in degrees. */
+  setFov(fovDeg: number) {
+    this.camera.fov = Math.max(40, Math.min(120, fovDeg));
+    this.camera.updateProjectionMatrix();
+  }
+
+  /** Invincibility keeps shieldCharges refilled every frame. */
+  setInvincible(on: boolean) {
+    this.invincible = on;
+    if (on && this.run) this.run.modifiers.shieldCharges = Math.max(this.run.modifiers.shieldCharges, 1);
+  }
+
+  /** Infinite stamina — player.stamina stays topped up. */
+  setInfiniteStamina(on: boolean) {
+    this.infiniteStamina = on;
+  }
+
+  /** Slow Pac-Man to 40% of his base speed — useful for debugging the hunt behavior. */
+  setSlowPacman(on: boolean) {
+    this.slowPacman = on;
+    if (this.pacman) {
+      this.pacman.speed = this.pacman.baseSpeed * (on ? 0.4 : 1) * (1 - this.pacman.weakened * 0.35);
+    }
+  }
+
+  /** Boost orb visibility by enlarging the glow sprite + its point-light range. */
+  setRevealOrbs(on: boolean) {
+    this.revealOrbs = on;
+    if (!this.orbs) return;
+    for (const orb of this.orbs.orbs) {
+      if (orb.collected) continue;
+      const s = on ? 1.5 : 0.55;
+      orb.sprite.scale.set(s, s, 1);
+      orb.light.distance = on ? 6 : 2.5;
+      orb.light.intensity = on ? 2 : 0.8;
+    }
+  }
+
+  /** Jump to an arbitrary floor (1..20). Plays the real descent animation. */
+  devJumpToFloor(floor: number) {
+    if (!this.run) return;
+    const target = Math.max(1, Math.min(TOTAL_FLOORS, Math.floor(floor)));
+    if (target === this.run.floor) return;
+    this.beginDescent(target);
+  }
+
+  /** Force a MINI or BIG upgrade card right now. */
+  devForceUpgrade(tier: UpgradeTier) {
+    if (!this.run) return;
+    this.pauseForUpgrade(tier);
+  }
+
+  /** Instantly finish the current floor (top up souls to target and trigger the normal floor-clear flow). */
+  devWinCurrentFloor() {
+    if (!this.run || !this.orbs) return;
+    const missing = this.run.soulsNeededThisFloor - this.run.soulsThisFloor;
+    if (missing <= 0) return;
+    // collect the next N uncollected orbs to trigger the real pickup pipeline
+    const remaining = this.orbs.orbs.filter((o) => !o.collected).slice(0, missing);
+    for (const orb of remaining) {
+      this.player.position.set(orb.position.x, this.player.position.y, orb.position.z);
+      // force-update; orb pickup happens next tick under the current loop
+      this.orbs.update(0, this.player.position, 100);
+      this.run.cumulativeSouls += 1;
+      this.run.soulsThisFloor += 1;
+    }
+    // Trigger the normal "floor cleared" path on the next tick by resetting soulsThisFloor to target
+    // (then the loop picks up and calls pauseForUpgrade('big') or triggerCliffhanger).
+    this.cbs.onSoulUpdate(this.run.soulsThisFloor, this.run.soulsNeededThisFloor);
+    if (this.run.floor === TOTAL_FLOORS) {
+      this.triggerCliffhanger();
+    } else {
+      this.pauseForUpgrade('big');
+    }
+  }
+
+  /** Kill the player immediately (same path as being caught). */
+  devKillPlayer() {
+    if (!this.run) return;
+    this.audio.playScream();
+    this.running = false;
+    this.cbs.onEnd('lose', this.buildStats());
+  }
+
+  /** Trigger the cliffhanger cutscene regardless of current floor. */
+  devTriggerCliffhanger() {
+    if (!this.run) return;
+    // Force floor=20 stats for a coherent readout
+    this.run.floor = TOTAL_FLOORS;
+    this.triggerCliffhanger();
+  }
+
+  /** Read the current run state (for dev-panel readout). */
+  devGetState(): string {
+    if (!this.run) return '(no active run)';
+    return [
+      `floor       ${this.run.floor} / ${TOTAL_FLOORS}`,
+      `souls       ${this.run.soulsThisFloor} / ${this.run.soulsNeededThisFloor}`,
+      `cumulative  ${this.run.cumulativeSouls}`,
+      `upgrades    ${this.run.upgrades.length}`,
+      `shards      ${this.shardsCollected}`,
+      `difficulty  ${this.run.difficulty}`,
+      `invincible  ${this.invincible}`,
+      `infStamina  ${this.infiniteStamina}`,
+      `slowPacman  ${this.slowPacman}`,
+    ].join('\n');
+  }
+
+  /** True if a run is currently active (player is on a floor). */
+  isRunActive(): boolean {
+    return this.run !== null && this.running;
+  }
+
+  /** Apply per-frame dev toggles. Called from the main loop. */
+  private applyDevToggles() {
+    if (!this.run) return;
+    if (this.invincible && this.run.modifiers.shieldCharges < 1) this.run.modifiers.shieldCharges = 1;
+    if (this.infiniteStamina && this.player) this.player.stamina = this.run.modifiers.staminaCapMul;
+  }
+
+  private invincible = false;
+  private infiniteStamina = false;
+  private slowPacman = false;
+  private revealOrbs = false;
 }
