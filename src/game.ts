@@ -34,7 +34,7 @@ export interface RunStats {
 
 export interface GameCallbacks {
   onSoulUpdate: (collected: number, total: number) => void;
-  onStaminaUpdate: (stamina: number) => void;
+  onStaminaUpdate: (stamina: number, cap: number) => void;
   onTensionUpdate: (tension: number) => void;
   onFloorEnter: (floor: number, theme: FloorTheme, soulsNeeded: number) => void;
   onMiniProgress: (cumulativeSouls: number, soulsUntilNext: number) => void;
@@ -84,6 +84,9 @@ export class Game {
   private raf = 0;
   private chompTimer = 0;
   private breathTimer = 0;
+  /** Seconds remaining on the shield-absorb speed penalty; Pac-Man's speed is
+   * restored when this hits 0 so repeated shield hits don't compound. */
+  private shieldFlingTimer = 0;
   private cbs: GameCallbacks;
   private run: RunState | null = null;
   private shardsCollected = 0;
@@ -240,7 +243,7 @@ export class Game {
 
     this.cbs.onFloorEnter(floor, theme, soulsNeeded);
     this.cbs.onSoulUpdate(0, soulsNeeded);
-    this.cbs.onStaminaUpdate(this.player.stamina);
+    this.cbs.onStaminaUpdate(this.player.stamina, this.run.modifiers.staminaCapMul);
     this.cbs.onMiniProgress(this.run.cumulativeSouls, this.soulsUntilNextMini());
 
     // Re-apply persistent dev toggles to the freshly-built floor
@@ -311,6 +314,14 @@ export class Game {
       this.ghostLight.distance = 5.5 * this.run.modifiers.ghostLightRangeMul;
     }
 
+    // Restore full Pac-Man speed after a shield-fling penalty expires.
+    if (this.shieldFlingTimer > 0) {
+      this.shieldFlingTimer = Math.max(0, this.shieldFlingTimer - dt);
+      if (this.shieldFlingTimer === 0) {
+        this.pacman.speed = this.pacman.baseSpeed * (1 - this.pacman.weakened * 0.35);
+      }
+    }
+
     const { caught, distance } = this.pacman.update(dt, this.player.position);
 
     const pickupRadius = 0.8 * this.run.modifiers.pickupRadiusMul;
@@ -335,10 +346,12 @@ export class Game {
         this.cbs.onBossShardCollected(this.shardsCollected, this.run.soulsNeededThisFloor);
       }
 
-      // mini-upgrade trigger: every 3 cumulative souls
-      const shouldMini =
-        this.run.cumulativeSouls > 0 && this.run.cumulativeSouls % 3 === 0 && this.run.soulsThisFloor < this.run.soulsNeededThisFloor;
-      if (shouldMini) {
+      // Mini-upgrade trigger: every 3 souls since the last mini. We use the
+      // dedicated counter rather than `cumulativeSouls % 3` so that picking
+      // up multiple orbs in one frame (possible with wide pickup radius) can
+      // never skip over a multiple-of-3 threshold.
+      if (this.run.soulsSinceLastMini >= 3 && this.run.soulsThisFloor < this.run.soulsNeededThisFloor) {
+        this.run.soulsSinceLastMini -= 3;
         this.pauseForUpgrade('mini');
         return this.queueNextFrame();
       }
@@ -359,7 +372,7 @@ export class Game {
     // tension 0..1 based on proximity
     const tension = Math.max(0, Math.min(1, 1 - distance / 10));
     this.cbs.onTensionUpdate(tension);
-    this.cbs.onStaminaUpdate(this.player.stamina);
+    this.cbs.onStaminaUpdate(this.player.stamina, this.run.modifiers.staminaCapMul);
     this.audio.setTension(tension);
 
     // periodic chomp + heavy breathing when close
@@ -383,11 +396,16 @@ export class Game {
       // shield absorbs the catch once
       if (this.run.modifiers.shieldCharges > 0) {
         this.run.modifiers.shieldCharges -= 1;
-        // Fling the hunter away from the player briefly. Guard with a wall
-        // collision check — without it, a catch near a corridor edge could
-        // displace Pac-Man up to ~1.3 units into a wall and freeze him there
-        // for the rest of the floor.
-        this.pacman.speed *= 0.6;
+        // Fling the hunter away from the player briefly. Compute speed
+        // relative to baseSpeed (applying current boss-weakening) so that
+        // repeated shield absorbs don't compound the slowdown, and arm a
+        // timer to restore full speed in a few seconds.
+        const bossFactor = 1 - this.pacman.weakened * 0.35;
+        this.pacman.speed = this.pacman.baseSpeed * bossFactor * 0.6;
+        this.shieldFlingTimer = 2.5;
+        // Guard displacement with a wall collision check — without it, a
+        // catch near a corridor edge could teleport Pac-Man into a wall
+        // and freeze him there for the rest of the floor.
         const flingX = this.pacman.position.x + (this.pacman.position.x - this.player.position.x) * 2;
         const flingZ = this.pacman.position.z + (this.pacman.position.z - this.player.position.z) * 2;
         if (!circleCollides(this.maze, flingX, flingZ, this.pacman.radius)) {

@@ -58,9 +58,13 @@ function main() {
       soulCountEl.textContent = String(collected);
       soulTargetEl.textContent = String(total);
     },
-    onStaminaUpdate: (stamina) => {
-      staminaBar.style.width = `${Math.round(Math.max(0, Math.min(1, stamina)) * 100)}%`;
-      staminaBar.classList.toggle('low', stamina < 0.25);
+    onStaminaUpdate: (stamina, cap) => {
+      // Normalize against the current cap so upgrades that raise capacity
+      // (Deep Lungs, Purge Heart, etc.) don't pin the bar at 100% until the
+      // player has drained past 1.0 worth of stamina.
+      const frac = cap > 0 ? stamina / cap : 0;
+      staminaBar.style.width = `${Math.round(Math.max(0, Math.min(1, frac)) * 100)}%`;
+      staminaBar.classList.toggle('low', frac < 0.25);
     },
     onTensionUpdate: (tension) => {
       vignette.classList.toggle('danger', tension > 0.55);
