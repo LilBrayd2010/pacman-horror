@@ -1,0 +1,91 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta
+      name="viewport"
+      content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover"
+    />
+    <meta name="theme-color" content="#000000" />
+    <title>SOULCHASE — you are the ghost</title>
+    <link rel="stylesheet" href="/src/style.css" />
+  </head>
+  <body>
+    <div id="game-root">
+      <canvas id="game-canvas"></canvas>
+
+      <!-- Start / menu screen -->
+      <div id="start-screen" class="overlay visible">
+        <div class="title-art">
+          <div class="title-main">SOULCHASE</div>
+          <div class="title-sub">you are the ghost. <em>he</em> is hungry.</div>
+        </div>
+        <div class="menu">
+          <div class="menu-label">Choose your fate</div>
+          <div class="difficulty">
+            <button class="diff-btn" data-difficulty="easy">
+              <span class="diff-name">Easy</span>
+              <span class="diff-desc">10 souls · slow hunter</span>
+            </button>
+            <button class="diff-btn" data-difficulty="medium">
+              <span class="diff-name">Medium</span>
+              <span class="diff-desc">20 souls · keen hunter</span>
+            </button>
+            <button class="diff-btn" data-difficulty="hard">
+              <span class="diff-name">Hard</span>
+              <span class="diff-desc">30 souls · relentless</span>
+            </button>
+          </div>
+          <div class="controls-hint">
+            <div><b>Desktop:</b> WASD move · Mouse look · Shift sprint · click to lock mouse</div>
+            <div><b>Mobile:</b> left stick move · right stick look · SPRINT button</div>
+            <div><b>Joy-Con / Gamepad:</b> left stick move · right stick look · ZR/R2 sprint</div>
+          </div>
+        </div>
+      </div>
+
+      <!-- In-game HUD -->
+      <div id="hud" class="hidden">
+        <div class="hud-top">
+          <div class="hud-souls">
+            <span class="hud-icon">✦</span>
+            <span id="hud-soul-count">0</span>
+            <span class="hud-slash">/</span>
+            <span id="hud-soul-target">10</span>
+          </div>
+          <div class="hud-stamina-wrap">
+            <div id="hud-stamina-bar"></div>
+          </div>
+        </div>
+        <div id="hud-heartbeat"></div>
+        <div id="hud-vignette"></div>
+        <div id="hud-warning" class="hidden">HE SEES YOU</div>
+
+        <!-- Mobile touch controls -->
+        <div id="touch-controls" class="hidden">
+          <div class="touch-zone" id="touch-left">
+            <div class="touch-stick" id="touch-left-knob"></div>
+          </div>
+          <div class="touch-zone" id="touch-right">
+            <div class="touch-stick" id="touch-right-knob"></div>
+          </div>
+          <button id="touch-sprint">SPRINT</button>
+        </div>
+      </div>
+
+      <!-- End screens -->
+      <div id="win-screen" class="overlay hidden">
+        <div class="end-title win">YOU ESCAPED</div>
+        <div class="end-sub">Every soul is free. For now.</div>
+        <button class="end-btn" id="win-again">Again</button>
+      </div>
+      <div id="lose-screen" class="overlay hidden">
+        <div class="end-title lose">HE FOUND YOU</div>
+        <div class="end-sub">The chomping never really stopped.</div>
+        <button class="end-btn" id="lose-again">Again</button>
+      </div>
+    </div>
+
+    <script type="module" src="/src/main.ts"></script>
+  </body>
+</html>
