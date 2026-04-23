@@ -63,11 +63,14 @@ export class Player {
       this.stamina = Math.min(1, this.stamina + this.staminaRegen * dt);
     }
 
-    // movement direction in world space
-    const forwardX = Math.sin(this.yaw);
-    const forwardZ = Math.cos(this.yaw);
-    const rightX = Math.cos(this.yaw);
-    const rightZ = -Math.sin(this.yaw);
+    // movement direction in world space. the three.js camera's default look
+    // direction is -Z, and applying yaw rotates that to (-sin(yaw),0,-cos(yaw))
+    // — so forward (the direction you're actually facing) is the negative of
+    // the sin/cos pair, and right = cross(up, forward).
+    const forwardX = -Math.sin(this.yaw);
+    const forwardZ = -Math.cos(this.yaw);
+    const rightX = -Math.cos(this.yaw);
+    const rightZ = Math.sin(this.yaw);
 
     let vx = (forwardX * input.moveY + rightX * input.moveX) * baseSpeed;
     let vz = (forwardZ * input.moveY + rightZ * input.moveX) * baseSpeed;

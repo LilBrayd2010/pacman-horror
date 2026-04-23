@@ -164,13 +164,18 @@ export class Controls {
     // movement keys
     let mx = 0;
     let my = 0;
-    if (this.keys.has('KeyW') || this.keys.has('ArrowUp')) my += 1;
-    if (this.keys.has('KeyS') || this.keys.has('ArrowDown')) my -= 1;
-    if (this.keys.has('KeyA') || this.keys.has('ArrowLeft')) mx -= 1;
-    if (this.keys.has('KeyD') || this.keys.has('ArrowRight')) mx += 1;
+    if (this.keys.has('KeyW')) my += 1;
+    if (this.keys.has('KeyS')) my -= 1;
+    if (this.keys.has('KeyA')) mx -= 1;
+    if (this.keys.has('KeyD')) mx += 1;
 
+    // keyboard-only look: arrow keys yaw/pitch (also Q/E for yaw)
     let lx = 0;
     let ly = 0;
+    if (this.keys.has('ArrowLeft') || this.keys.has('KeyQ')) lx -= 1;
+    if (this.keys.has('ArrowRight') || this.keys.has('KeyE')) lx += 1;
+    if (this.keys.has('ArrowUp')) ly -= 1;
+    if (this.keys.has('ArrowDown')) ly += 1;
 
     // touch
     if (this.leftStick?.active) {
