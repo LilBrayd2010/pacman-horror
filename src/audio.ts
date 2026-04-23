@@ -12,8 +12,11 @@ export class AudioEngine {
   private ambientGain: GainNode | null = null;
   private ambientNodes: AudioNode[] = [];
 
-  // heartbeat loop
-  private heartbeatTimer: number | null = null;
+  // heartbeat loop — driven by performance.now() instead of setInterval so
+  // calling setTension() every frame doesn't churn the timer or retrigger
+  // beats 60x per second.
+  private lastBeatTime = 0;
+  private currentBpm = 0;
 
   private masterVolume = 0.7;
 
@@ -109,18 +112,24 @@ export class AudioEngine {
   }
 
   private ensureHeartbeat(tension: number) {
-    if (this.heartbeatTimer !== null) {
-      window.clearInterval(this.heartbeatTimer);
-      this.heartbeatTimer = null;
+    if (tension <= 0.05 || !this.ctx) {
+      this.currentBpm = 0;
+      return;
     }
-    if (tension <= 0.05 || !this.ctx) return;
     const minBpm = 60;
     const maxBpm = 160;
     const bpm = minBpm + (maxBpm - minBpm) * tension;
     const intervalMs = 60000 / bpm;
-    const beat = () => this.playHeartbeat(0.25 + 0.9 * tension);
-    beat();
-    this.heartbeatTimer = window.setInterval(beat, intervalMs);
+    const now = performance.now();
+    // first beat at current tension — seed the clock
+    if (this.currentBpm === 0) {
+      this.lastBeatTime = now - intervalMs;
+    }
+    this.currentBpm = bpm;
+    if (now - this.lastBeatTime >= intervalMs) {
+      this.playHeartbeat(0.25 + 0.9 * tension);
+      this.lastBeatTime = now;
+    }
   }
 
   playHeartbeat(volume: number) {
@@ -491,10 +500,8 @@ export class AudioEngine {
   }
 
   stopAll() {
-    if (this.heartbeatTimer !== null) {
-      window.clearInterval(this.heartbeatTimer);
-      this.heartbeatTimer = null;
-    }
+    this.currentBpm = 0;
+    this.lastBeatTime = 0;
     this.stopAmbient();
   }
 }

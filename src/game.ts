@@ -1,7 +1,7 @@
 import * as THREE from 'three';
 import { AudioEngine } from './audio';
 import { Controls } from './controls';
-import { buildMazeData, buildMazeMesh, gridToWorld, type MazeData } from './maze';
+import { buildMazeData, buildMazeMesh, circleCollides, gridToWorld, type MazeData } from './maze';
 import { Orbs } from './orbs';
 import { Pacman } from './pacman';
 import { Player } from './player';
@@ -383,10 +383,17 @@ export class Game {
       // shield absorbs the catch once
       if (this.run.modifiers.shieldCharges > 0) {
         this.run.modifiers.shieldCharges -= 1;
-        // fling the hunter away from the player briefly
+        // Fling the hunter away from the player briefly. Guard with a wall
+        // collision check — without it, a catch near a corridor edge could
+        // displace Pac-Man up to ~1.3 units into a wall and freeze him there
+        // for the rest of the floor.
         this.pacman.speed *= 0.6;
-        this.pacman.position.x += (this.pacman.position.x - this.player.position.x) * 2;
-        this.pacman.position.z += (this.pacman.position.z - this.player.position.z) * 2;
+        const flingX = this.pacman.position.x + (this.pacman.position.x - this.player.position.x) * 2;
+        const flingZ = this.pacman.position.z + (this.pacman.position.z - this.player.position.z) * 2;
+        if (!circleCollides(this.maze, flingX, flingZ, this.pacman.radius)) {
+          this.pacman.position.x = flingX;
+          this.pacman.position.z = flingZ;
+        }
         this.audio.playShardBreak();
       } else {
         // Jumpscare audio + overlay are driven by main.ts so the lose screen
