@@ -5,7 +5,13 @@
 
 export class AudioEngine {
   private ctx: AudioContext | null = null;
+  /** Top-level user-controlled gain. Everything routes through here. */
   private master: GainNode | null = null;
+  /** Music bus — ambient drone + heartbeat. Connects to master. */
+  private musicBus: GainNode | null = null;
+  /** SFX bus — pickups, chomps, breath, jumpscare stings, descents, shards,
+   * rumbles. Connects to master. */
+  private sfxBus: GainNode | null = null;
   private noiseBuffer: AudioBuffer | null = null;
 
   // ambient
@@ -19,6 +25,8 @@ export class AudioEngine {
   private currentBpm = 0;
 
   private masterVolume = 0.7;
+  private musicVolume = 1.0;
+  private sfxVolume = 1.0;
 
   /** Must be called from a user gesture (the difficulty-select click). */
   init() {
@@ -28,6 +36,16 @@ export class AudioEngine {
     this.master = this.ctx.createGain();
     this.master.gain.value = this.masterVolume;
     this.master.connect(this.ctx.destination);
+    // Split the signal into music + sfx buses so each can be re-mixed
+    // independently by the settings UI. All nodes downstream of init()
+    // connect to `sfxBus` (one-shots) or `musicBus` (ambient/heartbeat)
+    // instead of the master directly.
+    this.musicBus = this.ctx.createGain();
+    this.musicBus.gain.value = this.musicVolume;
+    this.musicBus.connect(this.master);
+    this.sfxBus = this.ctx.createGain();
+    this.sfxBus.gain.value = this.sfxVolume;
+    this.sfxBus.connect(this.master);
     this.noiseBuffer = this.makeNoiseBuffer(2);
   }
 
@@ -35,6 +53,18 @@ export class AudioEngine {
   setMasterVolume(v: number) {
     this.masterVolume = Math.max(0, Math.min(1, v));
     if (this.master) this.master.gain.value = this.masterVolume;
+  }
+
+  /** User-adjustable music (ambient + heartbeat) gain, 0..1. */
+  setMusicVolume(v: number) {
+    this.musicVolume = Math.max(0, Math.min(1, v));
+    if (this.musicBus) this.musicBus.gain.value = this.musicVolume;
+  }
+
+  /** User-adjustable sfx (one-shots, chomps, stings) gain, 0..1. */
+  setSfxVolume(v: number) {
+    this.sfxVolume = Math.max(0, Math.min(1, v));
+    if (this.sfxBus) this.sfxBus.gain.value = this.sfxVolume;
   }
 
   private makeNoiseBuffer(seconds: number): AudioBuffer {
@@ -54,7 +84,9 @@ export class AudioEngine {
     this.stopAmbient();
     this.ambientGain = this.ctx.createGain();
     this.ambientGain.gain.value = 0.07;
-    this.ambientGain.connect(this.master);
+    // Ambient drone + wind route through the music bus so the Music slider
+    // can re-mix them independently of SFX one-shots.
+    this.ambientGain.connect(this.musicBus ?? this.master);
 
     // low rumble drone
     const drone = this.ctx.createOscillator();
@@ -135,6 +167,7 @@ export class AudioEngine {
   playHeartbeat(volume: number) {
     if (!this.ctx || !this.master) return;
     const now = this.ctx.currentTime;
+    const musicOut = this.musicBus ?? this.master!;
     const makeThud = (t: number, vol: number) => {
       const osc = this.ctx!.createOscillator();
       osc.type = 'sine';
@@ -144,7 +177,8 @@ export class AudioEngine {
       g.gain.setValueAtTime(0.0001, t);
       g.gain.exponentialRampToValueAtTime(vol, t + 0.02);
       g.gain.exponentialRampToValueAtTime(0.0001, t + 0.22);
-      osc.connect(g).connect(this.master!);
+      // Heartbeat = music — routes through the music bus alongside ambient.
+      osc.connect(g).connect(musicOut);
       osc.start(t);
       osc.stop(t + 0.25);
     };
@@ -166,7 +200,7 @@ export class AudioEngine {
       g.gain.setValueAtTime(0, now);
       g.gain.linearRampToValueAtTime(0.15, now + 0.01);
       g.gain.exponentialRampToValueAtTime(0.001, now + 0.6);
-      osc.connect(g).connect(this.master);
+      osc.connect(g).connect(this.sfxBus ?? this.master!);
       osc.start(now);
       osc.stop(now + 0.65);
     }
@@ -185,7 +219,7 @@ export class AudioEngine {
     og.gain.setValueAtTime(0.0001, now);
     og.gain.exponentialRampToValueAtTime(0.22 * volumeScale, now + 0.01);
     og.gain.exponentialRampToValueAtTime(0.0001, now + 0.15);
-    osc.connect(og).connect(this.master);
+    osc.connect(og).connect(this.sfxBus ?? this.master!);
     osc.start(now);
     osc.stop(now + 0.16);
 
@@ -200,7 +234,7 @@ export class AudioEngine {
     ng.gain.setValueAtTime(0.0001, now);
     ng.gain.exponentialRampToValueAtTime(0.18 * volumeScale, now + 0.015);
     ng.gain.exponentialRampToValueAtTime(0.0001, now + 0.12);
-    n.connect(nf).connect(ng).connect(this.master);
+    n.connect(nf).connect(ng).connect(this.sfxBus ?? this.master!);
     n.start(now);
     n.stop(now + 0.14);
   }
@@ -219,7 +253,7 @@ export class AudioEngine {
     ng.gain.setValueAtTime(0.0001, now);
     ng.gain.linearRampToValueAtTime(0.2 * volumeScale, now + 0.25);
     ng.gain.linearRampToValueAtTime(0.0001, now + 0.9);
-    n.connect(nf).connect(ng).connect(this.master);
+    n.connect(nf).connect(ng).connect(this.sfxBus ?? this.master!);
     n.start(now);
     n.stop(now + 1.0);
   }
@@ -241,7 +275,7 @@ export class AudioEngine {
       g.gain.setValueAtTime(0, now);
       g.gain.linearRampToValueAtTime(peak, now + 0.04);
       g.gain.exponentialRampToValueAtTime(0.0001, now + dur + 0.05);
-      osc.connect(g).connect(this.master!);
+      osc.connect(g).connect(this.sfxBus ?? this.master!);
       osc.start(now);
       osc.stop(now + dur + 0.1);
     };
@@ -255,7 +289,7 @@ export class AudioEngine {
       g.gain.setValueAtTime(0, now);
       g.gain.linearRampToValueAtTime(peak, now + 0.05);
       g.gain.exponentialRampToValueAtTime(0.0001, now + dur);
-      n.connect(f).connect(g).connect(this.master!);
+      n.connect(f).connect(g).connect(this.sfxBus ?? this.master!);
       n.start(now);
       n.stop(now + dur + 0.05);
     };
@@ -287,7 +321,7 @@ export class AudioEngine {
           g.gain.setValueAtTime(0, now + i * 0.12);
           g.gain.linearRampToValueAtTime(0.28, now + i * 0.12 + 0.02);
           g.gain.exponentialRampToValueAtTime(0.001, now + i * 0.12 + 0.09);
-          osc.connect(g).connect(this.master);
+          osc.connect(g).connect(this.sfxBus ?? this.master!);
           osc.start(now + i * 0.12);
           osc.stop(now + i * 0.12 + 0.1);
         }
@@ -310,7 +344,7 @@ export class AudioEngine {
           g.gain.setValueAtTime(0, t2);
           g.gain.linearRampToValueAtTime(0.25, t2 + 0.02);
           g.gain.exponentialRampToValueAtTime(0.001, t2 + 0.3);
-          n.connect(g).connect(this.master!);
+          n.connect(g).connect(this.sfxBus ?? this.master!);
           n.start(t2);
           n.stop(t2 + 0.35);
         }, 220);
@@ -342,7 +376,7 @@ export class AudioEngine {
       curve[i] = Math.tanh(x * 5);
     }
     dist.curve = curve;
-    osc.connect(dist).connect(g).connect(this.master);
+    osc.connect(dist).connect(g).connect(this.sfxBus ?? this.master!);
     osc.start(now);
     osc.stop(now + 1.7);
 
@@ -353,7 +387,7 @@ export class AudioEngine {
     ng.gain.setValueAtTime(0.0001, now);
     ng.gain.linearRampToValueAtTime(0.35, now + 0.05);
     ng.gain.linearRampToValueAtTime(0.0001, now + 0.8);
-    n.connect(ng).connect(this.master);
+    n.connect(ng).connect(this.sfxBus ?? this.master!);
     n.start(now);
     n.stop(now + 0.85);
   }
@@ -371,7 +405,7 @@ export class AudioEngine {
       g.gain.setValueAtTime(0, now + i * 0.2);
       g.gain.linearRampToValueAtTime(0.15, now + i * 0.2 + 0.05);
       g.gain.exponentialRampToValueAtTime(0.001, now + i * 0.2 + 1.0);
-      osc.connect(g).connect(this.master);
+      osc.connect(g).connect(this.sfxBus ?? this.master!);
       osc.start(now + i * 0.2);
       osc.stop(now + i * 0.2 + 1.05);
     }
@@ -389,7 +423,7 @@ export class AudioEngine {
     og.gain.setValueAtTime(0.0001, now);
     og.gain.linearRampToValueAtTime(0.22, now + 0.1);
     og.gain.exponentialRampToValueAtTime(0.0001, now + 1.3);
-    osc.connect(og).connect(this.master);
+    osc.connect(og).connect(this.sfxBus ?? this.master!);
     osc.start(now);
     osc.stop(now + 1.4);
 
@@ -405,7 +439,7 @@ export class AudioEngine {
     ng.gain.setValueAtTime(0, now);
     ng.gain.linearRampToValueAtTime(0.3, now + 0.15);
     ng.gain.exponentialRampToValueAtTime(0.001, now + 1.3);
-    n.connect(nf).connect(ng).connect(this.master);
+    n.connect(nf).connect(ng).connect(this.sfxBus ?? this.master!);
     n.start(now);
     n.stop(now + 1.4);
   }
@@ -424,7 +458,7 @@ export class AudioEngine {
       g.gain.setValueAtTime(0.0001, now + i * 0.015);
       g.gain.exponentialRampToValueAtTime(0.25, now + i * 0.015 + 0.01);
       g.gain.exponentialRampToValueAtTime(0.0001, now + i * 0.015 + 0.25);
-      osc.connect(g).connect(this.master);
+      osc.connect(g).connect(this.sfxBus ?? this.master!);
       osc.start(now + i * 0.015);
       osc.stop(now + i * 0.015 + 0.3);
     }
@@ -437,7 +471,7 @@ export class AudioEngine {
     ng.gain.setValueAtTime(0, now);
     ng.gain.linearRampToValueAtTime(0.22, now + 0.01);
     ng.gain.exponentialRampToValueAtTime(0.001, now + 0.2);
-    n.connect(nf).connect(ng).connect(this.master);
+    n.connect(nf).connect(ng).connect(this.sfxBus ?? this.master!);
     n.start(now);
     n.stop(now + 0.22);
   }
@@ -456,7 +490,7 @@ export class AudioEngine {
     g.gain.setValueAtTime(0, now);
     g.gain.linearRampToValueAtTime(0.4, now + durationSec * 0.7);
     g.gain.linearRampToValueAtTime(0.0001, now + durationSec);
-    osc.connect(filt).connect(g).connect(this.master);
+    osc.connect(filt).connect(g).connect(this.sfxBus ?? this.master!);
     osc.start(now);
     osc.stop(now + durationSec + 0.05);
 
@@ -473,7 +507,7 @@ export class AudioEngine {
       sg.gain.setValueAtTime(0.0001, t);
       sg.gain.exponentialRampToValueAtTime(loud, t + 0.02);
       sg.gain.exponentialRampToValueAtTime(0.0001, t + 0.45);
-      s.connect(sg).connect(this.master);
+      s.connect(sg).connect(this.sfxBus ?? this.master!);
       s.start(t);
       s.stop(t + 0.5);
     }
@@ -493,7 +527,7 @@ export class AudioEngine {
       g.gain.setValueAtTime(0, now);
       g.gain.linearRampToValueAtTime(0.22, now + 0.2);
       g.gain.linearRampToValueAtTime(0, now + 2.2);
-      osc.connect(g).connect(this.master);
+      osc.connect(g).connect(this.sfxBus ?? this.master!);
       osc.start(now);
       osc.stop(now + 2.3);
     }

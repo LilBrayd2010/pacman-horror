@@ -29,6 +29,16 @@ export class Player {
   staminaDrain = 0.22; // per sec sprinting
   staminaRegen = 0.15; // per sec idle
 
+  /** Accessibility: when true, all camera motion not driven by player input
+   * (head-bob, screen-shake, sway) is suppressed. Exposed so Settings can
+   * flip it without touching camera internals. */
+  reducedMotion = false;
+  /** Screen-shake magnitude in world units. Decays exponentially each frame.
+   * Set via {@link triggerShake}; read by {@link applyToCamera}. */
+  private shakeAmp = 0;
+  /** Cached bob phase so reducing dt (pause) doesn't teleport the bob. */
+  private bobPhase = 0;
+
   private maze: MazeData;
 
   constructor(opts: PlayerOptions) {
@@ -108,13 +118,60 @@ export class Player {
     }
 
     this.velocity.set(vx, 0, vz);
+
+    // Advance head-bob phase at a speed proportional to how fast the player
+    // is moving — stops cleanly when stationary so idle doesn't bob.
+    const speedMag = Math.hypot(vx, vz);
+    if (speedMag > 0.1) {
+      // Sprinting raises the step cadence noticeably; matches "leaning into a run".
+      const cadence = this.sprinting ? 9.5 : 6.0;
+      this.bobPhase += dt * cadence;
+    }
+
+    // Decay screen-shake. Exponential so big hits taper quickly without ever
+    // hitting exactly zero (just clamped below).
+    if (this.shakeAmp > 0) {
+      this.shakeAmp = Math.max(0, this.shakeAmp * Math.pow(0.01, dt) - 0.001 * dt);
+    }
+  }
+
+  /** Kick the camera with a transient shake. Amp is world units; typical
+   * values: 0.05 (shield absorb), 0.15 (catch). Ignored when `reducedMotion`
+   * is on so motion-sensitive players never get shaken. */
+  triggerShake(amp: number) {
+    if (this.reducedMotion) return;
+    if (amp > this.shakeAmp) this.shakeAmp = amp;
   }
 
   applyToCamera(camera: THREE.PerspectiveCamera) {
     camera.position.copy(this.position);
-    // slight head-bob while moving
-    const bob = this.velocity.length() > 0.1 ? Math.sin(performance.now() * 0.012) * 0.04 : 0;
-    camera.position.y = this.position.y + bob;
+    // Head-bob: vertical sine + tiny lateral sway tied to same phase. Amplitude
+    // scales with movement speed; sprinting bobs ~2x harder.
+    const moving = this.velocity.length() > 0.1;
+    let bobY = 0;
+    let bobX = 0;
+    if (moving && !this.reducedMotion) {
+      const ampY = this.sprinting ? 0.085 : 0.045;
+      const ampX = this.sprinting ? 0.03 : 0.015;
+      bobY = Math.sin(this.bobPhase) * ampY;
+      bobX = Math.cos(this.bobPhase * 0.5) * ampX;
+    }
+    // Screen-shake: random offset scaled by current amplitude. Uses time-based
+    // noise so the shake looks jittery rather than smooth.
+    let shakeX = 0;
+    let shakeY = 0;
+    if (this.shakeAmp > 0 && !this.reducedMotion) {
+      const t = performance.now() * 0.06;
+      shakeX = Math.sin(t * 11 + 1.3) * this.shakeAmp;
+      shakeY = Math.sin(t * 13 + 0.7) * this.shakeAmp;
+    }
+    // Build final camera position. Sway is applied along the camera's local
+    // right vector so it reads as head movement regardless of facing.
+    const rightX = Math.cos(this.yaw);
+    const rightZ = -Math.sin(this.yaw);
+    camera.position.x = this.position.x + (bobX + shakeX) * rightX;
+    camera.position.y = this.position.y + bobY + shakeY;
+    camera.position.z = this.position.z + (bobX + shakeX) * rightZ;
     // order YXZ: yaw then pitch then roll — suitable for FPS cameras
     camera.rotation.order = 'YXZ';
     camera.rotation.set(this.pitch, this.yaw, 0);

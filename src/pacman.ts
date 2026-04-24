@@ -7,7 +7,6 @@ import {
   hasLineOfSight,
   worldToGrid,
 } from './maze';
-import { makePacmanTexture } from './textures';
 
 export interface PacmanOptions {
   maze: MazeData;
@@ -27,8 +26,8 @@ export interface PacmanUpdate {
 }
 
 /**
- * Vision parameters for the hunter. The cone is symmetric around the sprite's
- * current facing direction (which we derive from its last movement vector).
+ * Vision parameters for the hunter. The cone is symmetric around the hunter's
+ * current facing direction (derived from its last movement vector).
  */
 const VISION = {
   /** Farthest distance at which Pacman can spot the player (world units). */
@@ -49,8 +48,39 @@ const WANDER_SPEED_MUL = 0.55;
 /** Alert-search speed multiplier (between wander and chase). */
 const ALERT_SPEED_MUL = 0.85;
 
+/** Number of pre-generated chomp keyframes (sphere geometries with different
+ * mouth-wedge sizes). Keeps the per-frame cost to a single geometry swap
+ * rather than rebuilding a sphere each tick. */
+const CHOMP_FRAMES = 8;
+/** Head radius (world units). Tuned to feel roughly the same on-screen size
+ * as the old 1.6-unit billboard sprite. */
+const HEAD_RADIUS = 0.75;
+
 /**
- * The hunter. A billboarded Pac-Man sprite that pathfinds on the grid.
+ * Precompute the body geometries for each chomp frame. The mouth is a vertical
+ * wedge carved out of the sphere via `phiStart/phiLength`. We orient the
+ * wedge so that it opens along the local -Z axis, which means `headGroup.lookAt`
+ * will naturally aim the mouth at the player.
+ *
+ * In THREE.SphereGeometry:  phi=0 → -X,  phi=π/2 → +Z,  phi=3π/2 (= -π/2) → -Z.
+ * We want the kept (non-carved) portion to skip past -Z, so the missing
+ * wedge is centered at phi = 3π/2 ± mouth/2.
+ */
+function makeChompFrames(): THREE.BufferGeometry[] {
+  const out: THREE.BufferGeometry[] = [];
+  for (let i = 0; i < CHOMP_FRAMES; i++) {
+    const t = i / (CHOMP_FRAMES - 1);
+    // Mouth opens from a narrow ~0.1π slit to a wide ~0.7π gape.
+    const mouth = (0.1 + t * 0.6) * Math.PI;
+    const phiStart = (3 * Math.PI) / 2 + mouth / 2;
+    const phiLength = Math.PI * 2 - mouth;
+    out.push(new THREE.SphereGeometry(HEAD_RADIUS, 28, 18, phiStart, phiLength));
+  }
+  return out;
+}
+
+/**
+ * The hunter. A 3D Pac-Man head that pathfinds on the grid.
  *
  * Behaves like a guard rather than a heat-seeker:
  *   - `wander`: no sight of player. Picks a random reachable cell and plods
@@ -59,6 +89,9 @@ const ALERT_SPEED_MUL = 0.85;
  *     heading to the last-known position; if still empty after
  *     `SEARCH_MEMORY_SEC`, drops back to `wander`.
  *   - `chase`: currently has line-of-sight. Full speed, real-time repaths.
+ *
+ * `sprite` is kept as the public display field for backward compatibility
+ * with callers that mutate its `.scale` (boss-floor sizing in game.ts).
  */
 export class Pacman {
   position = new THREE.Vector3();
@@ -67,22 +100,27 @@ export class Pacman {
   baseSpeed: number;
   repathPeriod = 0.35;
   caughtRadius: number;
-  sprite: THREE.Sprite;
+  /** Root 3D node containing the head + eyes. Replaces the old billboard sprite. */
+  sprite: THREE.Group;
   light: THREE.PointLight;
   /** 0..1 — boss-floor weakening factor. 0 = full health, 1 = shattered. */
   weakened = 0;
   state: PacmanState = 'wander';
 
   private maze: MazeData;
-  private frames: THREE.Texture[] = [];
+  private bodyMesh: THREE.Mesh;
+  private bodyMat: THREE.MeshLambertMaterial;
+  private chompGeos: THREE.BufferGeometry[];
+  private eyeL: THREE.Mesh;
+  private eyeR: THREE.Mesh;
   private chompPhase = 0;
   private currentPath: Array<{ x: number; y: number }> = [];
   private pathIndex = 0;
   private repathTimer = 0;
   private yOffset: number;
   /** Unit vector (x,z) Pac-Man is currently facing. Updated whenever he moves. */
-  private facingX = 1;
-  private facingZ = 0;
+  private facingX = 0;
+  private facingZ = 1;
   /** Remaining seconds to keep chasing after last LOS. */
   private searchTimer = 0;
   /** Last-seen player grid cell; used as the waypoint during `alert`. */
@@ -99,20 +137,32 @@ export class Pacman {
     this.yOffset = 1.1;
     this.position.set(opts.startX, this.yOffset, opts.startZ);
 
-    // precompute chomp frames
-    for (let i = 0; i < 6; i++) {
-      const t = i / 5;
-      this.frames.push(makePacmanTexture(t));
-    }
-
-    const mat = new THREE.SpriteMaterial({
-      map: this.frames[0],
-      transparent: true,
-      depthTest: true,
-      depthWrite: false,
+    // ---- 3D head model ---------------------------------------------------
+    this.sprite = new THREE.Group();
+    this.chompGeos = makeChompFrames();
+    this.bodyMat = new THREE.MeshLambertMaterial({
+      color: 0xe8c200,
+      emissive: 0x1a1200,
+      side: THREE.DoubleSide,
     });
-    this.sprite = new THREE.Sprite(mat);
-    this.sprite.scale.set(1.6, 1.6, 1);
+    this.bodyMesh = new THREE.Mesh(this.chompGeos[0], this.bodyMat);
+    this.sprite.add(this.bodyMesh);
+
+    // Hollow, unlit eyes floating just in front of the head. Placed on the
+    // local -Z side (same direction the mouth opens) so they always read as
+    // "facing the player" alongside the chomp.
+    const eyeGeo = new THREE.SphereGeometry(0.1, 12, 10);
+    const eyeMat = new THREE.MeshBasicMaterial({ color: 0x000000 });
+    this.eyeL = new THREE.Mesh(eyeGeo, eyeMat);
+    this.eyeR = new THREE.Mesh(eyeGeo, eyeMat);
+    const eyeFwd = -HEAD_RADIUS * 0.72;
+    const eyeUp = HEAD_RADIUS * 0.55;
+    const eyeSide = HEAD_RADIUS * 0.32;
+    this.eyeL.position.set(-eyeSide, eyeUp, eyeFwd);
+    this.eyeR.position.set(eyeSide, eyeUp, eyeFwd);
+    this.sprite.add(this.eyeL);
+    this.sprite.add(this.eyeR);
+
     this.sprite.position.copy(this.position);
 
     this.light = new THREE.PointLight(0xff2222, 1.8, 5, 2);
@@ -127,6 +177,15 @@ export class Pacman {
   removeFrom(scene: THREE.Scene) {
     scene.remove(this.sprite);
     scene.remove(this.light);
+  }
+
+  /** Dispose of GPU resources. Called when the floor is torn down. */
+  dispose() {
+    for (const g of this.chompGeos) g.dispose();
+    this.bodyMat.dispose();
+    (this.eyeL.geometry as THREE.BufferGeometry).dispose();
+    (this.eyeL.material as THREE.Material).dispose();
+    // eyeR shares geometry+material with eyeL (same constructor call) — don't double-dispose.
   }
 
   update(dt: number, playerPos: THREE.Vector3): PacmanUpdate {
@@ -179,14 +238,33 @@ export class Pacman {
           : WANDER_SPEED_MUL;
     const effectiveSpeed = this.speed * speedMul;
 
+    // Chomp rate scales with state + proximity. Wandering is a lazy "thinking"
+    // chew; chase is a frantic gnash that speeds up as he closes distance.
     const chompRate =
-      this.state === 'chase' ? 4 + Math.max(0, 10 - dist) * 0.8 : 2.2;
+      this.state === 'chase' ? 5 + Math.max(0, 10 - dist) * 0.9 :
+      this.state === 'alert' ? 3.2 :
+      1.8;
     this.chompPhase += dt * chompRate;
-    const frameIdx =
-      Math.floor((Math.sin(this.chompPhase) * 0.5 + 0.5) * (this.frames.length - 1)) %
-      this.frames.length;
-    this.sprite.material.map = this.frames[frameIdx];
-    this.sprite.material.needsUpdate = true;
+    const t = (Math.sin(this.chompPhase) * 0.5 + 0.5); // 0..1
+    const frameIdx = Math.min(
+      this.chompGeos.length - 1,
+      Math.floor(t * (this.chompGeos.length - 0.001)),
+    );
+    if (this.bodyMesh.geometry !== this.chompGeos[frameIdx]) {
+      this.bodyMesh.geometry = this.chompGeos[frameIdx];
+    }
+    // Body hue shifts subtly with state so a careful player can read intent
+    // from the color as well as the light. Chase = angrier orange-red tint.
+    if (this.state === 'chase') {
+      this.bodyMat.color.setHex(0xffaa22);
+      this.bodyMat.emissive.setHex(0x331100);
+    } else if (this.state === 'alert') {
+      this.bodyMat.color.setHex(0xf2c82c);
+      this.bodyMat.emissive.setHex(0x1f1400);
+    } else {
+      this.bodyMat.color.setHex(0xe8c200);
+      this.bodyMat.emissive.setHex(0x1a1200);
+    }
 
     // ---- pick a target depending on state --------------------------------
     let target: THREE.Vector3 | null = null;
@@ -254,12 +332,32 @@ export class Pacman {
       }
     }
 
-    // ---- sprite + light update ------------------------------------------
+    // When idle (no path at all), chase still wants the head to look at the
+    // player; otherwise we face our travel direction.
+    const lookDirX = this.state === 'chase' ? (playerPos.x - this.position.x) : this.facingX;
+    const lookDirZ = this.state === 'chase' ? (playerPos.z - this.position.z) : this.facingZ;
+
+    // ---- head + light update --------------------------------------------
+    // Idle float bob + slightly different rhythm when chasing (shallower, faster).
+    const bobAmp = this.state === 'chase' ? 0.035 : 0.055;
+    const bobFreq = this.state === 'chase' ? 2.4 : 1.3;
     this.sprite.position.set(
       this.position.x,
-      this.yOffset + Math.sin(this.chompPhase * 1.3) * 0.05,
+      this.yOffset + Math.sin(this.chompPhase * bobFreq) * bobAmp,
       this.position.z,
     );
+    // lookAt points the group's local -Z toward the target — mouth opens along
+    // -Z so this also aligns the chomp with the facing direction.
+    const lookTarget = new THREE.Vector3(
+      this.sprite.position.x + lookDirX,
+      this.sprite.position.y,
+      this.sprite.position.z + lookDirZ,
+    );
+    this.sprite.lookAt(lookTarget);
+    // Slight forward lean when actively chasing — reads as aggressive intent.
+    const leanTarget = this.state === 'chase' ? -0.18 : this.state === 'alert' ? -0.08 : 0;
+    this.bodyMesh.rotation.x = this.bodyMesh.rotation.x * 0.85 + leanTarget * 0.15;
+
     this.light.position.copy(this.sprite.position);
     // Red glow pulses when actively chasing; dim + steady otherwise so the
     // player can use the absence of red as a signal they're unseen.

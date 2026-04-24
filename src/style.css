@@ -1356,3 +1356,56 @@ body,
   80% { transform: translate(6px, 3px); }
 }
 
+
+/* Keyboard shortcut cheat sheet — reuses .settings-window chrome via the
+ * shared `.settings` class on the overlay. The grid is a 3-column layout
+ * on desktop that collapses to a single column on narrow viewports so
+ * every row remains readable on phones. */
+.shortcuts-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+  gap: 18px;
+  padding: 6px 4px 2px;
+}
+.shortcuts-group {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 14px 14px 12px;
+  background: rgba(18, 18, 22, 0.6);
+  border: 1px solid #2c2c30;
+  border-radius: 6px;
+}
+.shortcuts-group-title {
+  font-size: 11px;
+  letter-spacing: 0.2em;
+  color: var(--accent);
+  margin-bottom: 4px;
+}
+.shortcuts-row {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 13px;
+  color: var(--fg);
+  flex-wrap: wrap;
+}
+.shortcuts-row span {
+  color: var(--fg-dim, #aaa);
+  flex: 1;
+  min-width: 0;
+}
+.shortcuts-row kbd {
+  display: inline-block;
+  min-width: 28px;
+  padding: 3px 7px;
+  background: #1a1a1e;
+  border: 1px solid #444;
+  border-bottom-width: 2px;
+  border-radius: 4px;
+  font-family: inherit;
+  font-size: 11px;
+  color: #f0f0f0;
+  letter-spacing: 0.08em;
+  text-align: center;
+}

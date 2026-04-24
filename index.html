@@ -189,6 +189,23 @@
                   </label>
                 </div>
               </div>
+              <div class="set-row">
+                <label for="set-reduced-motion">Reduce motion</label>
+                <div class="set-ctrl">
+                  <label class="dev-chk inline">
+                    <input type="checkbox" id="set-reduced-motion" />
+                    <span>Disable head-bob + screen-shake</span>
+                  </label>
+                </div>
+                <div class="set-hint">Recommended for motion-sensitive players.</div>
+              </div>
+              <div class="set-row">
+                <label>Keyboard shortcuts</label>
+                <div class="set-ctrl">
+                  <button type="button" class="dev-btn" id="set-open-shortcuts">Show cheat sheet</button>
+                </div>
+                <div class="set-hint">Press <b>?</b> any time to bring this up.</div>
+              </div>
             </div>
 
             <!-- AUDIO TAB -->
@@ -199,6 +216,23 @@
                   <input type="range" id="set-master-vol" min="0" max="100" step="5" value="80" />
                   <span class="set-val" id="set-master-vol-val">80%</span>
                 </div>
+                <div class="set-hint">Overall volume — scales both music and SFX together.</div>
+              </div>
+              <div class="set-row">
+                <label for="set-music-vol">Music &amp; ambience</label>
+                <div class="set-ctrl">
+                  <input type="range" id="set-music-vol" min="0" max="100" step="5" value="100" />
+                  <span class="set-val" id="set-music-vol-val">100%</span>
+                </div>
+                <div class="set-hint">Drone, wind, heartbeat.</div>
+              </div>
+              <div class="set-row">
+                <label for="set-sfx-vol">Sound effects</label>
+                <div class="set-ctrl">
+                  <input type="range" id="set-sfx-vol" min="0" max="100" step="5" value="100" />
+                  <span class="set-val" id="set-sfx-vol-val">100%</span>
+                </div>
+                <div class="set-hint">Chomps, pickups, jumpscare stings.</div>
               </div>
             </div>
 
@@ -292,6 +326,42 @@
 
                 <div class="dev-section">
                   <div class="dev-state" id="dev-state-readout">(no active run)</div>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- Keyboard shortcut cheat sheet — opened with '?' or from Settings. -->
+      <div id="shortcuts-panel" class="overlay hidden settings">
+        <div class="settings-window">
+          <div class="settings-head">
+            <div class="settings-title">KEYBOARD SHORTCUTS</div>
+            <button class="settings-close" id="shortcuts-close" aria-label="Close">×</button>
+          </div>
+          <div class="settings-body">
+            <div class="set-pane active">
+              <div class="shortcuts-grid">
+                <div class="shortcuts-group">
+                  <div class="shortcuts-group-title">MOVEMENT</div>
+                  <div class="shortcuts-row"><kbd>W</kbd><kbd>A</kbd><kbd>S</kbd><kbd>D</kbd><span>Move</span></div>
+                  <div class="shortcuts-row"><kbd>Shift</kbd><span>Sprint (drains stamina)</span></div>
+                  <div class="shortcuts-row"><kbd>Mouse</kbd><span>Look — click canvas to lock</span></div>
+                </div>
+                <div class="shortcuts-group">
+                  <div class="shortcuts-group-title">ACTIONS</div>
+                  <div class="shortcuts-row"><kbd>F</kbd><span>Toggle flashlight</span></div>
+                  <div class="shortcuts-row"><kbd>Esc</kbd><span>Close modals / release mouse</span></div>
+                  <div class="shortcuts-row"><kbd>?</kbd><span>This cheat sheet</span></div>
+                  <div class="shortcuts-row"><kbd>⚙</kbd><span>Settings (also pauses mid-run)</span></div>
+                </div>
+                <div class="shortcuts-group">
+                  <div class="shortcuts-group-title">GAMEPAD / TOUCH</div>
+                  <div class="shortcuts-row"><kbd>L-Stick</kbd><span>Move</span></div>
+                  <div class="shortcuts-row"><kbd>R-Stick</kbd><span>Look</span></div>
+                  <div class="shortcuts-row"><kbd>ZR / R2</kbd><span>Sprint</span></div>
+                  <div class="shortcuts-row"><kbd>A / ×</kbd><span>Flashlight (gamepad)</span></div>
                 </div>
               </div>
             </div>

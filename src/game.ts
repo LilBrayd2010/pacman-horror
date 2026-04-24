@@ -269,6 +269,9 @@ export class Game {
       startZ: startW.z,
       startYaw: 0,
     });
+    // Re-apply the reduced-motion preference to the freshly-built player
+    // (Player is recreated every enterFloor, so we can't rely on constructor).
+    this.player.reducedMotion = this.reducedMotion;
     // carry stamina: start with a nice heuristic based on cap
     this.player.stamina = this.run.modifiers.staminaCapMul;
 
@@ -280,9 +283,9 @@ export class Game {
     });
     this.pacman.repathPeriod = this.run.modifiers.pacmanRepathPeriod;
     this.pacman.addTo(this.scene);
-    // on boss floor, scale up the hunter sprite and dial up glow
+    // on boss floor, scale up the hunter head and dial up glow
     if (floor === TOTAL_FLOORS) {
-      this.pacman.sprite.scale.set(2.4, 2.4, 1);
+      this.pacman.sprite.scale.set(2.4, 2.4, 2.4);
       this.pacman.light.intensity = 2.4;
       this.pacman.light.distance = 8;
     }
@@ -386,6 +389,22 @@ export class Game {
         batteryChanged = true;
       }
       if (batteryChanged) this.flashlightListener?.(this.flashlightOn, this.flashlightBattery);
+      // Low-battery flicker: below ~20% the beam intensity sputters around
+      // its nominal 3.4 value. The flicker gets more erratic as the battery
+      // drops. Keeps the flashlight feeling like a physical object instead
+      // of a clean boolean light. Disabled when off or on full juice.
+      if (this.flashlightOn) {
+        const base = 3.4;
+        if (this.flashlightBattery < 0.2) {
+          const severity = 1 - this.flashlightBattery / 0.2; // 0..1
+          // Blend a smooth wobble with occasional deep dropouts.
+          const wobble = Math.sin(performance.now() * 0.02) * 0.15 * severity;
+          const dropout = Math.random() < 0.04 * severity ? 1 - 0.7 * severity : 0;
+          this.flashlight.intensity = Math.max(0.1, base * (1 + wobble - dropout));
+        } else {
+          this.flashlight.intensity = base;
+        }
+      }
       // Position + aim: origin at camera, target one unit ahead along look dir.
       this.flashlight.position.copy(this.camera.position);
       const dir = new THREE.Vector3(0, 0, -1).applyQuaternion(this.camera.quaternion);
@@ -491,7 +510,12 @@ export class Game {
           this.pacman.position.z = flingZ;
         }
         this.audio.playShardBreak();
+        // Medium kick — feels like the shield took the hit. Respects
+        // reducedMotion; see Player.triggerShake.
+        this.player.triggerShake(0.06);
       } else {
+        // Hard kick on the final catch — reads alongside the jumpscare.
+        this.player.triggerShake(0.18);
         // Jumpscare audio + overlay are driven by main.ts so the lose screen
         // can wait for the scare to finish before appearing. We still stop
         // the loop here so Pac-Man can't rack up another catch in the
@@ -617,6 +641,13 @@ export class Game {
     if (on && this.run) this.run.modifiers.shieldCharges = Math.max(this.run.modifiers.shieldCharges, 1);
   }
 
+  /** Accessibility: disable head-bob + screen-shake for motion-sensitive
+   * players. Propagates to the active Player; re-applied on every enterFloor. */
+  setReducedMotion(on: boolean) {
+    this.reducedMotion = on;
+    if (this.player) this.player.reducedMotion = on;
+  }
+
   /** Infinite stamina — player.stamina stays topped up. */
   setInfiniteStamina(on: boolean) {
     this.infiniteStamina = on;
@@ -661,10 +692,12 @@ export class Game {
   setRevealOrbs(on: boolean) {
     this.revealOrbs = on;
     if (!this.orbs) return;
+    // Scales are now animated by Orbs.update() (pulse + spin), so rather than
+    // writing scale.set() once, flip a flag on the Orbs instance and let the
+    // animation loop multiply it in.
+    this.orbs.reveal = on;
     for (const orb of this.orbs.orbs) {
       if (orb.collected) continue;
-      const s = on ? 1.5 : 0.55;
-      orb.sprite.scale.set(s, s, 1);
       orb.light.distance = on ? 6 : 2.5;
       orb.light.intensity = on ? 2 : 0.8;
     }
@@ -756,4 +789,6 @@ export class Game {
   private infiniteStamina = false;
   private slowPacman = false;
   private revealOrbs = false;
+  /** Accessibility preference — mirrored onto the active Player. */
+  private reducedMotion = false;
 }

@@ -23,8 +23,12 @@ interface Settings {
   hudScale: number;      // 0.75 .. 1.6
   fov: number;           // 60 .. 100
   masterVol: number;     // 0 .. 1
+  musicVol: number;      // 0 .. 1
+  sfxVol: number;        // 0 .. 1
   lookSensitivity: number; // 0.25 .. 3
   invertY: boolean;
+  /** Accessibility: suppress head-bob + screen-shake. */
+  reducedMotion: boolean;
 }
 
 const DEFAULT_SETTINGS: Settings = {
@@ -33,8 +37,11 @@ const DEFAULT_SETTINGS: Settings = {
   hudScale: 1.0,
   fov: 75,
   masterVol: 0.8,
+  musicVol: 1.0,
+  sfxVol: 1.0,
   lookSensitivity: 1,
   invertY: false,
+  reducedMotion: false,
 };
 
 function loadSettings(): Settings {
@@ -77,8 +84,11 @@ export function installSettingsPanel(game: Game): void {
     document.documentElement.style.setProperty('--joystick-scale', String(settings.joystickScale));
     document.documentElement.style.setProperty('--hud-scale', String(settings.hudScale));
     game.audio.setMasterVolume(settings.masterVol);
+    game.audio.setMusicVolume(settings.musicVol);
+    game.audio.setSfxVolume(settings.sfxVol);
     game.setLookSensitivity(settings.lookSensitivity);
     game.setInvertPitch(settings.invertY);
+    game.setReducedMotion(settings.reducedMotion);
   };
   apply();
 
@@ -169,10 +179,21 @@ export function installSettingsPanel(game: Game): void {
 
   bindSlider('set-master-vol', 'set-master-vol-val', '%', 100, (v) => {
     settings.masterVol = v;
-    const audio = (game as unknown as { audio?: { setMasterVolume?: (vv: number) => void } }).audio;
-    audio?.setMasterVolume?.(v);
+    game.audio.setMasterVolume(v);
     saveSettings(settings);
   }, settings.masterVol);
+
+  bindSlider('set-music-vol', 'set-music-vol-val', '%', 100, (v) => {
+    settings.musicVol = v;
+    game.audio.setMusicVolume(v);
+    saveSettings(settings);
+  }, settings.musicVol);
+
+  bindSlider('set-sfx-vol', 'set-sfx-vol-val', '%', 100, (v) => {
+    settings.sfxVol = v;
+    game.audio.setSfxVolume(v);
+    saveSettings(settings);
+  }, settings.sfxVol);
 
   bindSlider('set-look-sens', 'set-look-sens-val', '%', 100, (v) => {
     settings.lookSensitivity = v;
@@ -186,6 +207,56 @@ export function installSettingsPanel(game: Game): void {
     settings.invertY = invertYInput.checked;
     game.setInvertPitch(invertYInput.checked);
     saveSettings(settings);
+  });
+
+  const reducedMotionInput = $<HTMLInputElement>('set-reduced-motion');
+  reducedMotionInput.checked = settings.reducedMotion;
+  reducedMotionInput.addEventListener('change', () => {
+    settings.reducedMotion = reducedMotionInput.checked;
+    game.setReducedMotion(reducedMotionInput.checked);
+    saveSettings(settings);
+  });
+
+  // ---------------------------------------------------------------------
+  // Keyboard shortcuts cheat sheet — opened by the Display-tab button OR
+  // by pressing '?' anywhere outside an input. It reuses the `.settings`
+  // overlay styling but lives in its own panel so both can coexist.
+  // ---------------------------------------------------------------------
+  const shortcutsPanel = document.getElementById('shortcuts-panel');
+  const openShortcutsBtn = document.getElementById('set-open-shortcuts');
+  const closeShortcutsBtn = document.getElementById('shortcuts-close');
+  const openShortcuts = () => {
+    if (!shortcutsPanel) return;
+    shortcutsPanel.classList.remove('hidden');
+    shortcutsPanel.classList.add('visible');
+  };
+  const closeShortcuts = () => {
+    if (!shortcutsPanel) return;
+    shortcutsPanel.classList.add('hidden');
+    shortcutsPanel.classList.remove('visible');
+  };
+  openShortcutsBtn?.addEventListener('click', () => {
+    // Close the settings panel first so they don't stack visually.
+    close();
+    openShortcuts();
+  });
+  closeShortcutsBtn?.addEventListener('click', closeShortcuts);
+  shortcutsPanel?.addEventListener('click', (e) => {
+    if (e.target === shortcutsPanel) closeShortcuts();
+  });
+  window.addEventListener('keydown', (e) => {
+    // Ignore shortcut keys while the user is typing in any input (most
+    // notably the dev-tools password field, which would otherwise close on
+    // the first '?').
+    const tgt = e.target as HTMLElement | null;
+    if (tgt && (tgt.tagName === 'INPUT' || tgt.tagName === 'TEXTAREA')) return;
+    if (e.key === '?' || (e.shiftKey && e.code === 'Slash')) {
+      e.preventDefault();
+      if (shortcutsPanel?.classList.contains('hidden')) openShortcuts();
+      else closeShortcuts();
+    } else if (e.code === 'Escape' && !shortcutsPanel?.classList.contains('hidden')) {
+      closeShortcuts();
+    }
   });
 
   // =====================================================================
