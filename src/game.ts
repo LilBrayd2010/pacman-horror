@@ -1,0 +1,794 @@
+import * as THREE from 'three';
+import { AudioEngine } from './audio';
+import { Controls } from './controls';
+import { buildMazeData, buildMazeMesh, circleCollides, gridToWorld, type MazeData } from './maze';
+import { Orbs } from './orbs';
+import { Pacman } from './pacman';
+import { Player } from './player';
+import {
+  mazeSizeForFloor,
+  pacmanSpeedForFloor,
+  soulsForFloor,
+  themeForFloor,
+  type FloorTheme,
+} from './themes';
+import {
+  defaultModifiers,
+  getUpgradeById,
+  rollUpgrades,
+  type PlayerModifiers,
+  type Upgrade,
+  type UpgradeTier,
+} from './upgrades';
+
+export type Difficulty = 'easy' | 'medium' | 'hard';
+
+export type GameEndReason = 'lose' | 'cliffhanger';
+
+export interface RunStats {
+  difficulty: Difficulty;
+  floorsCleared: number;
+  cumulativeSouls: number;
+  upgradesTaken: number;
+}
+
+export interface GameCallbacks {
+  onSoulUpdate: (collected: number, total: number) => void;
+  onStaminaUpdate: (stamina: number, cap: number) => void;
+  onTensionUpdate: (tension: number) => void;
+  onFloorEnter: (floor: number, theme: FloorTheme, soulsNeeded: number) => void;
+  onMiniProgress: (cumulativeSouls: number, soulsUntilNext: number) => void;
+  onUpgradePrompt: (tier: UpgradeTier, choices: Upgrade[]) => void;
+  onActiveUpgradesChange: (upgrades: Upgrade[]) => void;
+  onDescentStart: (fromFloor: number, toFloor: number) => void;
+  onDescentEnd: () => void;
+  onBossShardCollected: (count: number, total: number) => void;
+  onCliffhanger: (stats: RunStats) => void;
+  onEnd: (reason: GameEndReason, stats: RunStats) => void;
+}
+
+const TOTAL_FLOORS = 20;
+
+interface RunState {
+  difficulty: Difficulty;
+  floor: number;
+  cumulativeSouls: number;
+  soulsThisFloor: number;
+  soulsNeededThisFloor: number;
+  upgrades: Upgrade[];
+  modifiers: PlayerModifiers;
+  /** counter: souls collected since last mini-upgrade was awarded. */
+  soulsSinceLastMini: number;
+}
+
+export class Game {
+  private scene: THREE.Scene;
+  private camera: THREE.PerspectiveCamera;
+  private renderer: THREE.WebGLRenderer;
+  private clock = new THREE.Clock();
+  private controls: Controls;
+  /** Exposed so main.ts can trigger jumpscare stings and settings.ts can
+   * adjust master volume without casting through `unknown`. */
+  audio: AudioEngine;
+
+  private maze!: MazeData;
+  private mazeMesh!: THREE.Group;
+  private player!: Player;
+  private pacman!: Pacman;
+  private orbs!: Orbs;
+  private ghostLight: THREE.PointLight | null = null;
+
+  private running = false;
+  private paused = false;
+  private settingsPaused = false;
+  /** True when the blur handler was what paused the game, so the matching
+   * focus handler can safely resume. If the player manually opened settings
+   * and THEN tabbed away, blur early-returns and this stays false, so
+   * tabbing back won't yank them out of the settings panel. */
+  private blurPaused = false;
+  private raf = 0;
+  private chompTimer = 0;
+  private breathTimer = 0;
+  /** Seconds remaining on the shield-absorb speed penalty; Pac-Man's speed is
+   * restored when this hits 0 so repeated shield hits don't compound. */
+  private shieldFlingTimer = 0;
+
+  /** Flashlight spotlight + its aim target. Added to the scene in enterFloor
+   * (per-floor rebuild) and aimed at the player's look direction every tick. */
+  private flashlight: THREE.SpotLight | null = null;
+  private flashlightTarget: THREE.Object3D | null = null;
+  private flashlightOn = false;
+  /** 0..1 battery charge. Drains while on, regenerates (slower) while off.
+   * Auto-switches off when drained. */
+  flashlightBattery = 1;
+  private readonly FLASHLIGHT_DRAIN = 1 / 70;  // ~70s of continuous on
+  private readonly FLASHLIGHT_REGEN = 1 / 110; // ~110s to fully recharge
+  /** Called whenever the flashlight state or battery changes so the HUD can
+   * reflect it. main.ts installs this via setFlashlightChangeListener. */
+  private flashlightListener: ((on: boolean, battery: number) => void) | null = null;
+  private cbs: GameCallbacks;
+  private run: RunState | null = null;
+  private shardsCollected = 0;
+
+  /** descent animation state. when non-null we lerp the camera Y offset and skip normal gameplay ticks. */
+  private descentFx: { t: number; duration: number; holdDark: number; nextFloor: number } | null = null;
+  /** full-screen fade overlay element (added by main.ts via callbacks). */
+
+  constructor(canvas: HTMLCanvasElement, cbs: GameCallbacks) {
+    this.cbs = cbs;
+    this.renderer = new THREE.WebGLRenderer({ canvas, antialias: false, powerPreference: 'high-performance' });
+    this.renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
+    this.renderer.setSize(window.innerWidth, window.innerHeight, false);
+    this.renderer.shadowMap.enabled = false;
+
+    this.scene = new THREE.Scene();
+    this.scene.background = new THREE.Color(0x000000);
+    this.scene.fog = new THREE.FogExp2(0x000000, 0.1);
+
+    this.camera = new THREE.PerspectiveCamera(75, window.innerWidth / window.innerHeight, 0.1, 80);
+
+    this.controls = new Controls(canvas);
+    this.audio = new AudioEngine();
+
+    window.addEventListener('resize', this.onResize);
+
+    // QoL: auto-pause when the tab loses focus so the hunter doesn't keep
+    // running while the player is elsewhere. Reuses the settings-paused path
+    // so clock/timer logic is consistent with opening the settings panel.
+    // Tracks `blurPaused` so the focus handler only resumes what blur paused
+    // (not, say, an open settings panel or upgrade prompt).
+    window.addEventListener('blur', () => {
+      if (this.hasActiveRun() && !this.paused) {
+        this.setSettingsPaused(true);
+        this.blurPaused = true;
+      }
+    });
+    window.addEventListener('focus', () => {
+      if (this.blurPaused) {
+        this.blurPaused = false;
+        this.setSettingsPaused(false);
+      }
+    });
+  }
+
+  private onResize = () => {
+    this.camera.aspect = window.innerWidth / window.innerHeight;
+    this.camera.updateProjectionMatrix();
+    this.renderer.setSize(window.innerWidth, window.innerHeight, false);
+  };
+
+  /** Kick off a brand-new run at floor 1. */
+  startRun(difficulty: Difficulty) {
+    this.reset();
+    this.run = {
+      difficulty,
+      floor: 0,
+      cumulativeSouls: 0,
+      soulsThisFloor: 0,
+      soulsNeededThisFloor: 0,
+      upgrades: [],
+      modifiers: defaultModifiers(),
+      soulsSinceLastMini: 0,
+    };
+    this.audio.init();
+    this.audio.resumeIfSuspended();
+    this.audio.startAmbient();
+    this.enterFloor(1);
+    this.running = true;
+    this.clock.start();
+    this.loop();
+  }
+
+  /** Called when the player picks a card — apply it to modifiers, advance if it was the big (post-floor) card. */
+  applyPickedUpgrade(id: string, wasBig: boolean) {
+    if (!this.run) return;
+    const up = getUpgradeById(id);
+    if (!up) return;
+    up.apply(this.run.modifiers);
+    this.run.upgrades.push(up);
+    this.cbs.onActiveUpgradesChange(this.run.upgrades.slice());
+    if (wasBig) {
+      const next = this.run.floor + 1;
+      if (next > TOTAL_FLOORS) {
+        // shouldn't happen — boss triggers cliffhanger directly. Defensive.
+        this.triggerCliffhanger();
+        return;
+      }
+      this.beginDescent(next);
+    } else {
+      this.paused = false;
+      this.clock.start();
+    }
+  }
+
+  /** Called from the UI when a mini/big card is dismissed with no pick (shouldn't normally happen, but safe). */
+  cancelUpgradePick() {
+    this.paused = false;
+    this.clock.start();
+  }
+
+  private enterFloor(floor: number) {
+    if (!this.run) return;
+    this.run.floor = floor;
+    this.run.soulsThisFloor = 0;
+    const extraSouls = this.run.modifiers.nextFloorExtraSouls;
+    this.run.modifiers.nextFloorExtraSouls = 0; // consume
+    const theme = themeForFloor(floor);
+    const size = mazeSizeForFloor(floor, this.run.difficulty);
+    const pacSpeed = pacmanSpeedForFloor(floor, this.run.difficulty) * this.run.modifiers.pacmanSpeedMul;
+
+    // clear previous floor
+    this.clearScene();
+
+    this.scene.fog = new THREE.FogExp2(theme.fogColor, theme.fogDensity);
+    this.scene.background = new THREE.Color(0x000000);
+
+    // lighting tuned to theme
+    const ambient = new THREE.AmbientLight(theme.ambientColor, theme.ambientIntensity);
+    this.scene.add(ambient);
+    const moon = new THREE.DirectionalLight(0x4a5a80, 0.18);
+    moon.position.set(1, 4, 2);
+    this.scene.add(moon);
+
+    // build maze with theme tint
+    this.maze = buildMazeData(size, size);
+    this.mazeMesh = buildMazeMesh(this.maze, {
+      wall: theme.wallTint,
+      floor: theme.floorTint,
+      ceiling: theme.ceilingTint,
+    });
+    this.scene.add(this.mazeMesh);
+
+    const startCell = this.maze.openCells[0];
+    const farCell = this.maze.openCells[this.maze.openCells.length - 1];
+    const startW = gridToWorld(this.maze, startCell.x, startCell.y);
+    const farW = gridToWorld(this.maze, farCell.x, farCell.y);
+
+    this.ghostLight = new THREE.PointLight(theme.ghostLightColor, 0.9, 5.5 * this.run.modifiers.ghostLightRangeMul, 2);
+    this.ghostLight.position.set(startW.x, 1.5, startW.z);
+    this.scene.add(this.ghostLight);
+
+    // Flashlight: warm-white spotlight attached to the camera's position.
+    // Rebuilt every floor because clearScene() wipes the scene graph.
+    this.flashlight = new THREE.SpotLight(
+      0xfff1c2,
+      this.flashlightOn && this.flashlightBattery > 0 ? 3.4 : 0,
+      22,
+      Math.PI / 7,
+      0.35,
+      1.6,
+    );
+    this.flashlightTarget = new THREE.Object3D();
+    this.scene.add(this.flashlight);
+    this.scene.add(this.flashlightTarget);
+    this.flashlight.target = this.flashlightTarget;
+
+    this.player = new Player({
+      maze: this.maze,
+      startX: startW.x,
+      startZ: startW.z,
+      startYaw: 0,
+    });
+    // Re-apply the reduced-motion preference to the freshly-built player
+    // (Player is recreated every enterFloor, so we can't rely on constructor).
+    this.player.reducedMotion = this.reducedMotion;
+    // carry stamina: start with a nice heuristic based on cap
+    this.player.stamina = this.run.modifiers.staminaCapMul;
+
+    this.pacman = new Pacman({
+      maze: this.maze,
+      startX: farW.x,
+      startZ: farW.z,
+      speed: pacSpeed,
+    });
+    this.pacman.repathPeriod = this.run.modifiers.pacmanRepathPeriod;
+    this.pacman.addTo(this.scene);
+    // on boss floor, scale up the hunter head and dial up glow
+    if (floor === TOTAL_FLOORS) {
+      this.pacman.sprite.scale.set(2.4, 2.4, 2.4);
+      this.pacman.light.intensity = 2.4;
+      this.pacman.light.distance = 8;
+    }
+
+    const soulsNeeded = soulsForFloor(floor) + extraSouls;
+    this.run.soulsNeededThisFloor = soulsNeeded;
+    this.shardsCollected = 0;
+
+    this.orbs = new Orbs(this.scene, this.maze, soulsNeeded, [startCell, farCell]);
+
+    this.cbs.onFloorEnter(floor, theme, soulsNeeded);
+    this.cbs.onSoulUpdate(0, soulsNeeded);
+    this.cbs.onStaminaUpdate(this.player.stamina, this.run.modifiers.staminaCapMul);
+    this.cbs.onMiniProgress(this.run.cumulativeSouls, this.soulsUntilNextMini());
+
+    // Re-apply persistent dev toggles to the freshly-built floor
+    if (this.slowPacman) this.setSlowPacman(true);
+    if (this.revealOrbs) this.setRevealOrbs(true);
+  }
+
+  private soulsUntilNextMini(): number {
+    if (!this.run) return 3;
+    return 3 - (this.run.cumulativeSouls % 3);
+  }
+
+  private beginDescent(nextFloor: number) {
+    if (!this.run) return;
+    this.paused = true;
+    this.descentFx = { t: 0, duration: 1.2, holdDark: 0.4, nextFloor };
+    this.audio.playDescent();
+    this.cbs.onDescentStart(this.run.floor, nextFloor);
+  }
+
+  private finishDescent() {
+    if (!this.descentFx) return;
+    const next = this.descentFx.nextFloor;
+    this.descentFx = null;
+    this.enterFloor(next);
+    this.cbs.onDescentEnd();
+    this.paused = false;
+    this.clock.start();
+  }
+
+  private clearScene() {
+    while (this.scene.children.length > 0) this.scene.remove(this.scene.children[0]);
+    this.ghostLight = null;
+  }
+
+  private loop = () => {
+    if (!this.running) return;
+    const dt = Math.min(0.05, this.clock.getDelta());
+
+    // descent animation — tilt camera down and skip normal ticks until it finishes
+    if (this.descentFx) {
+      this.descentFx.t += dt;
+      const { t, duration, holdDark } = this.descentFx;
+      // phase 1: fall (0..duration) — camera tilts and Y drops, screen fades to black
+      // phase 2: hold dark (duration..duration+holdDark) — black screen, rebuild next floor at end
+      if (t >= duration + holdDark) {
+        this.finishDescent();
+      }
+      // dummy render so framebuffer doesn't flash; fade is handled by DOM overlay via onDescentStart/onDescentEnd
+      this.renderer.render(this.scene, this.camera);
+      this.raf = requestAnimationFrame(this.loop);
+      return;
+    }
+
+    if (this.paused || !this.run) {
+      this.renderer.render(this.scene, this.camera);
+      this.raf = requestAnimationFrame(this.loop);
+      return;
+    }
+
+    this.applyDevToggles();
+
+    // Edge-triggered flashlight toggle (F key on desktop, mobile button).
+    if (this.controls.consumeFlashlightToggle()) this.toggleFlashlight();
+
+    const mouseDelta = this.controls.sample();
+    this.player.update(dt, this.controls.state, mouseDelta, this.run.modifiers);
+    this.player.applyToCamera(this.camera);
+    if (this.ghostLight) {
+      this.ghostLight.position.copy(this.player.position);
+      this.ghostLight.distance = 5.5 * this.run.modifiers.ghostLightRangeMul;
+    }
+
+    // Flashlight battery + tracking
+    if (this.flashlight && this.flashlightTarget) {
+      // Battery tick
+      let batteryChanged = false;
+      if (this.flashlightOn) {
+        const prev = this.flashlightBattery;
+        this.flashlightBattery = Math.max(0, this.flashlightBattery - this.FLASHLIGHT_DRAIN * dt);
+        if (this.flashlightBattery !== prev) batteryChanged = true;
+        if (this.flashlightBattery === 0) {
+          this.flashlightOn = false;
+          this.flashlight.intensity = 0;
+        }
+      } else if (this.flashlightBattery < 1) {
+        this.flashlightBattery = Math.min(1, this.flashlightBattery + this.FLASHLIGHT_REGEN * dt);
+        batteryChanged = true;
+      }
+      if (batteryChanged) this.flashlightListener?.(this.flashlightOn, this.flashlightBattery);
+      // Low-battery flicker: below ~20% the beam intensity sputters around
+      // its nominal 3.4 value. The flicker gets more erratic as the battery
+      // drops. Keeps the flashlight feeling like a physical object instead
+      // of a clean boolean light. Disabled when off or on full juice.
+      if (this.flashlightOn) {
+        const base = 3.4;
+        if (this.flashlightBattery < 0.2) {
+          const severity = 1 - this.flashlightBattery / 0.2; // 0..1
+          // Blend a smooth wobble with occasional deep dropouts.
+          const wobble = Math.sin(performance.now() * 0.02) * 0.15 * severity;
+          const dropout = Math.random() < 0.04 * severity ? 1 - 0.7 * severity : 0;
+          this.flashlight.intensity = Math.max(0.1, base * (1 + wobble - dropout));
+        } else {
+          this.flashlight.intensity = base;
+        }
+      }
+      // Position + aim: origin at camera, target one unit ahead along look dir.
+      this.flashlight.position.copy(this.camera.position);
+      const dir = new THREE.Vector3(0, 0, -1).applyQuaternion(this.camera.quaternion);
+      this.flashlightTarget.position.copy(this.camera.position).add(dir);
+    }
+
+    // Restore full Pac-Man speed after a shield-fling penalty expires.
+    if (this.shieldFlingTimer > 0) {
+      this.shieldFlingTimer = Math.max(0, this.shieldFlingTimer - dt);
+      if (this.shieldFlingTimer === 0) {
+        this.pacman.speed = this.pacman.baseSpeed * (1 - this.pacman.weakened * 0.35);
+      }
+    }
+
+    const { caught, distance } = this.pacman.update(dt, this.player.position);
+
+    const pickupRadius = 0.8 * this.run.modifiers.pickupRadiusMul;
+    const pickedUp = this.orbs.update(dt, this.player.position, pickupRadius);
+    if (pickedUp > 0) {
+      this.run.cumulativeSouls += pickedUp;
+      this.run.soulsThisFloor += pickedUp;
+      this.run.soulsSinceLastMini += pickedUp;
+      if (this.run.modifiers.pickupSpeedBurstSec > 0) {
+        this.player.burstRemaining = Math.max(this.player.burstRemaining, this.run.modifiers.pickupSpeedBurstSec);
+      }
+      this.audio.playPickup();
+      this.cbs.onSoulUpdate(this.run.soulsThisFloor, this.run.soulsNeededThisFloor);
+      this.cbs.onMiniProgress(this.run.cumulativeSouls, this.soulsUntilNextMini());
+
+      // boss shards — each collection weakens pacman
+      if (this.run.floor === TOTAL_FLOORS) {
+        this.shardsCollected += pickedUp;
+        this.pacman.weakened = Math.min(1, this.shardsCollected / this.run.soulsNeededThisFloor);
+        this.pacman.speed = this.pacman.baseSpeed * (1 - this.pacman.weakened * 0.35);
+        this.audio.playShardBreak();
+        this.cbs.onBossShardCollected(this.shardsCollected, this.run.soulsNeededThisFloor);
+      }
+
+      // Mini-upgrade trigger: every 3 souls since the last mini. We use the
+      // dedicated counter rather than `cumulativeSouls % 3` so that picking
+      // up multiple orbs in one frame (possible with wide pickup radius) can
+      // never skip over a multiple-of-3 threshold.
+      if (this.run.soulsSinceLastMini >= 3 && this.run.soulsThisFloor < this.run.soulsNeededThisFloor) {
+        this.run.soulsSinceLastMini -= 3;
+        this.pauseForUpgrade('mini');
+        return this.queueNextFrame();
+      }
+
+      // floor cleared
+      if (this.run.soulsThisFloor >= this.run.soulsNeededThisFloor) {
+        if (this.run.floor === TOTAL_FLOORS) {
+          // boss defeated — trigger cliffhanger (no big-upgrade pick on boss floor)
+          this.triggerCliffhanger();
+          return this.queueNextFrame();
+        }
+        // cumulative-souls mini also triggers right at floor clear? We allow it (the big still follows).
+        this.pauseForUpgrade('big');
+        return this.queueNextFrame();
+      }
+    }
+
+    // tension 0..1 based on proximity
+    const tension = Math.max(0, Math.min(1, 1 - distance / 10));
+    this.cbs.onTensionUpdate(tension);
+    this.cbs.onStaminaUpdate(this.player.stamina, this.run.modifiers.staminaCapMul);
+    this.audio.setTension(tension);
+
+    // periodic chomp + heavy breathing when close
+    this.chompTimer -= dt;
+    if (this.chompTimer <= 0) {
+      const interval = 1.8 - tension * 1.2;
+      this.chompTimer = Math.max(0.4, interval);
+      this.audio.playChomp(0.5 + tension * 0.7);
+    }
+    if (tension > 0.55) {
+      this.breathTimer -= dt;
+      if (this.breathTimer <= 0) {
+        this.breathTimer = 2.2;
+        this.audio.playBreath(tension);
+      }
+    } else {
+      this.breathTimer = 0;
+    }
+
+    if (caught) {
+      // shield absorbs the catch once
+      if (this.run.modifiers.shieldCharges > 0) {
+        this.run.modifiers.shieldCharges -= 1;
+        // Fling the hunter away from the player briefly. Compute speed
+        // relative to baseSpeed (applying current boss-weakening) so that
+        // repeated shield absorbs don't compound the slowdown, and arm a
+        // timer to restore full speed in a few seconds.
+        const bossFactor = 1 - this.pacman.weakened * 0.35;
+        this.pacman.speed = this.pacman.baseSpeed * bossFactor * 0.6;
+        this.shieldFlingTimer = 2.5;
+        // Guard displacement with a wall collision check — without it, a
+        // catch near a corridor edge could teleport Pac-Man into a wall
+        // and freeze him there for the rest of the floor.
+        const flingX = this.pacman.position.x + (this.pacman.position.x - this.player.position.x) * 2;
+        const flingZ = this.pacman.position.z + (this.pacman.position.z - this.player.position.z) * 2;
+        if (!circleCollides(this.maze, flingX, flingZ, this.pacman.radius)) {
+          this.pacman.position.x = flingX;
+          this.pacman.position.z = flingZ;
+        }
+        this.audio.playShardBreak();
+        // Medium kick — feels like the shield took the hit. Respects
+        // reducedMotion; see Player.triggerShake.
+        this.player.triggerShake(0.06);
+      } else {
+        // Hard kick on the final catch — reads alongside the jumpscare.
+        this.player.triggerShake(0.18);
+        // Jumpscare audio + overlay are driven by main.ts so the lose screen
+        // can wait for the scare to finish before appearing. We still stop
+        // the loop here so Pac-Man can't rack up another catch in the
+        // meantime.
+        this.running = false;
+        this.cbs.onEnd('lose', this.buildStats());
+        return;
+      }
+    }
+
+    this.renderer.render(this.scene, this.camera);
+    this.raf = requestAnimationFrame(this.loop);
+  };
+
+  private queueNextFrame() {
+    this.renderer.render(this.scene, this.camera);
+    this.raf = requestAnimationFrame(this.loop);
+  }
+
+  private pauseForUpgrade(tier: UpgradeTier) {
+    if (!this.run) return;
+    this.paused = true;
+    const owned = this.run.upgrades.map((u) => u.id);
+    const choices = rollUpgrades(tier, owned, 3, true);
+    this.cbs.onUpgradePrompt(tier, choices);
+  }
+
+  private triggerCliffhanger() {
+    if (!this.run) return;
+    this.paused = true;
+    this.running = false;
+    this.cbs.onCliffhanger(this.buildStats());
+  }
+
+  /** Called by main.ts after the cliffhanger cutscene ends — transitions to the end screen. */
+  concludeCliffhanger() {
+    if (!this.run) return;
+    this.cbs.onEnd('cliffhanger', this.buildStats());
+  }
+
+  private buildStats(): RunStats {
+    const r = this.run!;
+    return {
+      difficulty: r.difficulty,
+      floorsCleared: Math.max(0, r.floor - 1) + (r.soulsThisFloor >= r.soulsNeededThisFloor ? 1 : 0),
+      cumulativeSouls: r.cumulativeSouls,
+      upgradesTaken: r.upgrades.length,
+    };
+  }
+
+  stop() {
+    this.running = false;
+    if (this.raf) cancelAnimationFrame(this.raf);
+    this.raf = 0;
+    this.audio.stopAll();
+    this.controls.releasePointerLock();
+  }
+
+  reset() {
+    this.stop();
+    this.clearScene();
+    this.run = null;
+    this.shardsCollected = 0;
+    this.descentFx = null;
+    this.paused = false;
+    this.blurPaused = false;
+    // A brand-new run should always start with a fully-charged flashlight,
+    // switched off — otherwise the previous run's end-state leaks forward
+    // (enterFloor reads both values when it (re)builds the SpotLight).
+    this.flashlightOn = false;
+    this.flashlightBattery = 1;
+    this.flashlightListener?.(false, 1);
+  }
+
+  // ===================================================================
+  // Settings / dev-tool surface. Consumed by the settings panel UI.
+  // ===================================================================
+
+  /**
+   * True while there's an active run and we're not in an upgrade/descent
+   * modal. Used by settings.ts to decide whether to pause mid-match.
+   */
+  hasActiveRun(): boolean {
+    return this.running && this.run !== null;
+  }
+
+  /**
+   * Pause the active run while the settings modal is open, then resume when
+   * it closes. Noop if no run is active or we're already paused for another
+   * reason (upgrade card, descent). We reset the clock so the dt jump from
+   * the time spent in the menu doesn't teleport Pac-Man on resume.
+   */
+  setSettingsPaused(on: boolean) {
+    if (!this.run || !this.running) return;
+    if (on) {
+      if (this.paused) return; // already paused for upgrade/descent — don't overwrite
+      this.paused = true;
+      this.settingsPaused = true;
+    } else if (this.settingsPaused) {
+      this.settingsPaused = false;
+      this.paused = false;
+      this.clock.start();
+    }
+  }
+
+  /** Scale the renderer's pixel ratio. Accepts 0.4..1.5 roughly. */
+  setRenderScale(scale: number) {
+    const clamped = Math.max(0.4, Math.min(1.5, scale));
+    const effective = Math.min(window.devicePixelRatio * clamped, window.devicePixelRatio * 1.5);
+    this.renderer.setPixelRatio(effective);
+    this.renderer.setSize(window.innerWidth, window.innerHeight, false);
+  }
+
+  /** Adjust camera field of view in degrees. */
+  setFov(fovDeg: number) {
+    this.camera.fov = Math.max(40, Math.min(120, fovDeg));
+    this.camera.updateProjectionMatrix();
+  }
+
+  /** Invincibility keeps shieldCharges refilled every frame. */
+  setInvincible(on: boolean) {
+    this.invincible = on;
+    if (on && this.run) this.run.modifiers.shieldCharges = Math.max(this.run.modifiers.shieldCharges, 1);
+  }
+
+  /** Accessibility: disable head-bob + screen-shake for motion-sensitive
+   * players. Propagates to the active Player; re-applied on every enterFloor. */
+  setReducedMotion(on: boolean) {
+    this.reducedMotion = on;
+    if (this.player) this.player.reducedMotion = on;
+  }
+
+  /** Infinite stamina — player.stamina stays topped up. */
+  setInfiniteStamina(on: boolean) {
+    this.infiniteStamina = on;
+  }
+
+  /** Slow Pac-Man to 40% of his base speed — useful for debugging the hunt behavior. */
+  setSlowPacman(on: boolean) {
+    this.slowPacman = on;
+    if (this.pacman) {
+      this.pacman.speed = this.pacman.baseSpeed * (on ? 0.4 : 1) * (1 - this.pacman.weakened * 0.35);
+    }
+  }
+
+  /** Toggle the player flashlight. Called by the F key (desktop), the mobile
+   * button, or the HUD icon. Auto-forces off when the battery is drained. */
+  toggleFlashlight() {
+    if (!this.flashlight) return;
+    // Block turning on when the battery is fully drained — would just flicker.
+    if (!this.flashlightOn && this.flashlightBattery <= 0.01) return;
+    this.flashlightOn = !this.flashlightOn;
+    this.flashlight.intensity = this.flashlightOn ? 3.4 : 0;
+    this.flashlightListener?.(this.flashlightOn, this.flashlightBattery);
+  }
+
+  isFlashlightOn(): boolean {
+    return this.flashlightOn;
+  }
+
+  setFlashlightChangeListener(fn: (on: boolean, battery: number) => void) {
+    this.flashlightListener = fn;
+  }
+
+  /** Proxy look-sensitivity + invert-Y settings to the live Controls instance. */
+  setLookSensitivity(v: number) {
+    this.controls.setLookSensitivity(v);
+  }
+  setInvertPitch(on: boolean) {
+    this.controls.setInvertPitch(on);
+  }
+
+  /** Boost orb visibility by enlarging the glow sprite + its point-light range. */
+  setRevealOrbs(on: boolean) {
+    this.revealOrbs = on;
+    if (!this.orbs) return;
+    // Scales are now animated by Orbs.update() (pulse + spin), so rather than
+    // writing scale.set() once, flip a flag on the Orbs instance and let the
+    // animation loop multiply it in.
+    this.orbs.reveal = on;
+    for (const orb of this.orbs.orbs) {
+      if (orb.collected) continue;
+      orb.light.distance = on ? 6 : 2.5;
+      orb.light.intensity = on ? 2 : 0.8;
+    }
+  }
+
+  /** Jump to an arbitrary floor (1..20). Plays the real descent animation. */
+  devJumpToFloor(floor: number) {
+    if (!this.run) return;
+    const target = Math.max(1, Math.min(TOTAL_FLOORS, Math.floor(floor)));
+    if (target === this.run.floor) return;
+    this.beginDescent(target);
+  }
+
+  /** Force a MINI or BIG upgrade card right now. */
+  devForceUpgrade(tier: UpgradeTier) {
+    if (!this.run) return;
+    this.pauseForUpgrade(tier);
+  }
+
+  /** Instantly finish the current floor (top up souls to target and trigger the normal floor-clear flow). */
+  devWinCurrentFloor() {
+    if (!this.run || !this.orbs) return;
+    const missing = this.run.soulsNeededThisFloor - this.run.soulsThisFloor;
+    if (missing <= 0) return;
+    // collect the next N uncollected orbs to trigger the real pickup pipeline
+    const remaining = this.orbs.orbs.filter((o) => !o.collected).slice(0, missing);
+    for (const orb of remaining) {
+      this.player.position.set(orb.position.x, this.player.position.y, orb.position.z);
+      // force-update; orb pickup happens next tick under the current loop
+      this.orbs.update(0, this.player.position, 100);
+      this.run.cumulativeSouls += 1;
+      this.run.soulsThisFloor += 1;
+    }
+    // Trigger the normal "floor cleared" path on the next tick by resetting soulsThisFloor to target
+    // (then the loop picks up and calls pauseForUpgrade('big') or triggerCliffhanger).
+    this.cbs.onSoulUpdate(this.run.soulsThisFloor, this.run.soulsNeededThisFloor);
+    if (this.run.floor === TOTAL_FLOORS) {
+      this.triggerCliffhanger();
+    } else {
+      this.pauseForUpgrade('big');
+    }
+  }
+
+  /** Kill the player immediately (same path as being caught). */
+  devKillPlayer() {
+    if (!this.run) return;
+    this.audio.playScream();
+    this.running = false;
+    this.cbs.onEnd('lose', this.buildStats());
+  }
+
+  /** Trigger the cliffhanger cutscene regardless of current floor. */
+  devTriggerCliffhanger() {
+    if (!this.run) return;
+    // Force floor=20 stats for a coherent readout
+    this.run.floor = TOTAL_FLOORS;
+    this.triggerCliffhanger();
+  }
+
+  /** Read the current run state (for dev-panel readout). */
+  devGetState(): string {
+    if (!this.run) return '(no active run)';
+    return [
+      `floor       ${this.run.floor} / ${TOTAL_FLOORS}`,
+      `souls       ${this.run.soulsThisFloor} / ${this.run.soulsNeededThisFloor}`,
+      `cumulative  ${this.run.cumulativeSouls}`,
+      `upgrades    ${this.run.upgrades.length}`,
+      `shards      ${this.shardsCollected}`,
+      `difficulty  ${this.run.difficulty}`,
+      `invincible  ${this.invincible}`,
+      `infStamina  ${this.infiniteStamina}`,
+      `slowPacman  ${this.slowPacman}`,
+    ].join('\n');
+  }
+
+  /** True if a run is currently active (player is on a floor). */
+  isRunActive(): boolean {
+    return this.run !== null && this.running;
+  }
+
+  /** Apply per-frame dev toggles. Called from the main loop. */
+  private applyDevToggles() {
+    if (!this.run) return;
+    if (this.invincible && this.run.modifiers.shieldCharges < 1) this.run.modifiers.shieldCharges = 1;
+    if (this.infiniteStamina && this.player) this.player.stamina = this.run.modifiers.staminaCapMul;
+  }
+
+  private invincible = false;
+  private infiniteStamina = false;
+  private slowPacman = false;
+  private revealOrbs = false;
+  /** Accessibility preference — mirrored onto the active Player. */
+  private reducedMotion = false;
+}

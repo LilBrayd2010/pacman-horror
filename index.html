@@ -1,0 +1,417 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta
+      name="viewport"
+      content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover"
+    />
+    <meta name="theme-color" content="#000000" />
+    <title>SOULCHASE — you are the ghost</title>
+    <link rel="stylesheet" href="/src/style.css" />
+  </head>
+  <body>
+    <div id="game-root">
+      <canvas id="game-canvas"></canvas>
+
+      <!-- Title screen: PLAY / ABILITIES / SETTINGS -->
+      <div id="title-screen" class="overlay visible">
+        <div class="title-art">
+          <div class="title-main">SOULCHASE</div>
+          <div class="title-sub">you are the ghost. <em>he</em> is hungry.</div>
+          <div class="title-floorhint">20 floors. he is faster each one.</div>
+        </div>
+        <div class="menu">
+          <button class="menu-btn primary" id="title-play">PLAY</button>
+          <button class="menu-btn" id="title-abilities">ABILITIES</button>
+          <button class="menu-btn subtle" id="title-settings">SETTINGS</button>
+          <div class="controls-hint">
+            <div><b>Desktop:</b> WASD move · Mouse look · Shift sprint · click to lock mouse</div>
+            <div><b>Mobile:</b> left stick move · right stick look · SPRINT button</div>
+            <div><b>Joy-Con / Gamepad:</b> left stick move · right stick look · ZR/R2 sprint</div>
+          </div>
+        </div>
+      </div>
+
+      <!-- Difficulty select -->
+      <div id="start-screen" class="overlay hidden">
+        <div class="title-art">
+          <div class="title-main">SOULCHASE</div>
+          <div class="title-sub">you are the ghost. <em>he</em> is hungry.</div>
+        </div>
+        <div class="menu">
+          <div class="menu-label">Choose your fate</div>
+          <div class="difficulty">
+            <button class="diff-btn" data-difficulty="easy">
+              <span class="diff-name">Easy</span>
+              <span class="diff-desc">slow hunter · small halls</span>
+            </button>
+            <button class="diff-btn" data-difficulty="medium">
+              <span class="diff-name">Medium</span>
+              <span class="diff-desc">keen hunter · wider halls</span>
+            </button>
+            <button class="diff-btn" data-difficulty="hard">
+              <span class="diff-name">Hard</span>
+              <span class="diff-desc">relentless · sprawling halls</span>
+            </button>
+          </div>
+          <button class="menu-btn subtle small" id="start-back">← back</button>
+        </div>
+      </div>
+
+      <!-- Abilities compendium -->
+      <div id="abilities-screen" class="overlay hidden">
+        <div class="abilities-head">
+          <div class="abilities-title">ABILITIES</div>
+          <div class="abilities-sub">All upgrades that can drop during a run. Every gift draws its price.</div>
+        </div>
+        <div class="abilities-tabs">
+          <button class="ab-tab active" data-tier="mini">MINI · every 3 souls</button>
+          <button class="ab-tab" data-tier="big">BIG · every floor clear</button>
+        </div>
+        <div class="abilities-list" id="abilities-list"></div>
+        <button class="menu-btn subtle small" id="abilities-back">← back</button>
+      </div>
+
+      <!-- In-game HUD -->
+      <div id="hud" class="hidden">
+        <div class="hud-top">
+          <div class="hud-left">
+            <div id="hud-floor" class="hud-floor">FLOOR 1 · DUSTY CRYPT</div>
+            <div class="hud-souls">
+              <span class="hud-icon">✦</span>
+              <span id="hud-soul-count">0</span>
+              <span class="hud-slash">/</span>
+              <span id="hud-soul-target">3</span>
+            </div>
+            <div id="hud-minibar" class="hud-minibar">
+              <div class="hud-minibar-label">NEXT MINI UPGRADE</div>
+              <div class="hud-minibar-track"><div id="hud-minibar-fill"></div></div>
+            </div>
+          </div>
+          <div class="hud-right">
+            <div class="hud-stamina-wrap"><div id="hud-stamina-bar"></div></div>
+            <div id="hud-flashlight" class="hud-flashlight" aria-label="Flashlight battery">
+              <span class="hud-flashlight-icon">🔦</span>
+              <div class="hud-flashlight-track"><div id="hud-flashlight-fill"></div></div>
+            </div>
+            <div id="hud-shieldicon" class="hud-shieldicon hidden">SHIELD</div>
+            <button id="hud-settings-btn" class="hud-settings-btn" aria-label="Settings">⚙</button>
+          </div>
+        </div>
+
+        <div id="hud-floortitle" class="hud-floortitle hidden">
+          <div id="hud-floortitle-num">FLOOR 1</div>
+          <div id="hud-floortitle-name">DUSTY CRYPT</div>
+        </div>
+
+        <div id="hud-activeupgrades" class="hud-activeupgrades"></div>
+
+        <div id="hud-heartbeat"></div>
+        <div id="hud-vignette"></div>
+        <div id="hud-warning" class="hidden">HE SEES YOU</div>
+
+        <!-- Mobile touch controls -->
+        <div id="touch-controls" class="hidden">
+          <div class="touch-zone" id="touch-left">
+            <div class="touch-stick" id="touch-left-knob"></div>
+          </div>
+          <div class="touch-zone" id="touch-right">
+            <div class="touch-stick" id="touch-right-knob"></div>
+          </div>
+          <button id="touch-sprint">SPRINT</button>
+          <button id="touch-flashlight" aria-label="Flashlight">🔦</button>
+        </div>
+      </div>
+
+      <!-- Settings panel (modal, accessible from title + HUD) -->
+      <div id="settings-panel" class="overlay hidden settings">
+        <div class="settings-window">
+          <div class="settings-head">
+            <div class="settings-title">SETTINGS</div>
+            <button class="settings-close" id="settings-close" aria-label="Close">×</button>
+          </div>
+          <div class="settings-tabs">
+            <button class="set-tab active" data-tab="display">DISPLAY</button>
+            <button class="set-tab" data-tab="audio">AUDIO</button>
+            <button class="set-tab" data-tab="dev">DEV TOOLS</button>
+          </div>
+
+          <div class="settings-body">
+            <!-- DISPLAY TAB -->
+            <div class="set-pane active" data-pane="display">
+              <div class="set-row">
+                <label for="set-render-scale">Render scale</label>
+                <div class="set-ctrl">
+                  <input type="range" id="set-render-scale" min="40" max="150" step="5" value="100" />
+                  <span class="set-val" id="set-render-scale-val">100%</span>
+                </div>
+                <div class="set-hint">Lower = smaller, sharper canvas fit on small screens. Higher = crisper detail on big monitors.</div>
+              </div>
+              <div class="set-row">
+                <label for="set-joystick-size">Joystick size</label>
+                <div class="set-ctrl">
+                  <input type="range" id="set-joystick-size" min="60" max="160" step="5" value="100" />
+                  <span class="set-val" id="set-joystick-size-val">100%</span>
+                </div>
+                <div class="set-hint">Mobile touch joystick size. Bigger = easier for big hands / small phones.</div>
+              </div>
+              <div class="set-row">
+                <label for="set-hud-scale">HUD text size</label>
+                <div class="set-ctrl">
+                  <input type="range" id="set-hud-scale" min="75" max="160" step="5" value="100" />
+                  <span class="set-val" id="set-hud-scale-val">100%</span>
+                </div>
+                <div class="set-hint">Scales floor label, soul counter, and upgrade list.</div>
+              </div>
+              <div class="set-row">
+                <label for="set-fov">Field of view</label>
+                <div class="set-ctrl">
+                  <input type="range" id="set-fov" min="60" max="100" step="2" value="75" />
+                  <span class="set-val" id="set-fov-val">75°</span>
+                </div>
+                <div class="set-hint">Wider FOV shows more of the maze but makes Pac-Man look smaller.</div>
+              </div>
+              <div class="set-row">
+                <label for="set-look-sens">Look sensitivity</label>
+                <div class="set-ctrl">
+                  <input type="range" id="set-look-sens" min="25" max="300" step="5" value="100" />
+                  <span class="set-val" id="set-look-sens-val">100%</span>
+                </div>
+                <div class="set-hint">Multiplies mouse + right-stick look speed.</div>
+              </div>
+              <div class="set-row">
+                <label for="set-invert-y">Invert look Y</label>
+                <div class="set-ctrl">
+                  <label class="dev-chk inline">
+                    <input type="checkbox" id="set-invert-y" />
+                    <span>Pull down = look up</span>
+                  </label>
+                </div>
+              </div>
+              <div class="set-row">
+                <label for="set-reduced-motion">Reduce motion</label>
+                <div class="set-ctrl">
+                  <label class="dev-chk inline">
+                    <input type="checkbox" id="set-reduced-motion" />
+                    <span>Disable head-bob + screen-shake</span>
+                  </label>
+                </div>
+                <div class="set-hint">Recommended for motion-sensitive players.</div>
+              </div>
+              <div class="set-row">
+                <label>Keyboard shortcuts</label>
+                <div class="set-ctrl">
+                  <button type="button" class="dev-btn" id="set-open-shortcuts">Show cheat sheet</button>
+                </div>
+                <div class="set-hint">Press <b>?</b> any time to bring this up.</div>
+              </div>
+            </div>
+
+            <!-- AUDIO TAB -->
+            <div class="set-pane" data-pane="audio">
+              <div class="set-row">
+                <label for="set-master-vol">Master volume</label>
+                <div class="set-ctrl">
+                  <input type="range" id="set-master-vol" min="0" max="100" step="5" value="80" />
+                  <span class="set-val" id="set-master-vol-val">80%</span>
+                </div>
+                <div class="set-hint">Overall volume — scales both music and SFX together.</div>
+              </div>
+              <div class="set-row">
+                <label for="set-music-vol">Music &amp; ambience</label>
+                <div class="set-ctrl">
+                  <input type="range" id="set-music-vol" min="0" max="100" step="5" value="100" />
+                  <span class="set-val" id="set-music-vol-val">100%</span>
+                </div>
+                <div class="set-hint">Drone, wind, heartbeat.</div>
+              </div>
+              <div class="set-row">
+                <label for="set-sfx-vol">Sound effects</label>
+                <div class="set-ctrl">
+                  <input type="range" id="set-sfx-vol" min="0" max="100" step="5" value="100" />
+                  <span class="set-val" id="set-sfx-vol-val">100%</span>
+                </div>
+                <div class="set-hint">Chomps, pickups, jumpscare stings.</div>
+              </div>
+            </div>
+
+            <!-- DEV TOOLS TAB -->
+            <div class="set-pane" data-pane="dev">
+              <div id="dev-locked" class="dev-locked">
+                <div class="dev-lock-title">🔒 Developer Tools</div>
+                <div class="dev-lock-sub">Enter password to unlock.</div>
+                <div class="dev-lock-row">
+                  <input type="password" id="dev-password" placeholder="password" autocomplete="off" />
+                  <button id="dev-unlock">UNLOCK</button>
+                </div>
+                <div class="dev-lock-err hidden" id="dev-lock-err">wrong password</div>
+              </div>
+
+              <div id="dev-panel" class="dev-panel hidden">
+                <div class="dev-section">
+                  <div class="dev-section-title">JUMP TO FLOOR</div>
+                  <div class="dev-grid">
+                    <div class="set-ctrl">
+                      <input type="range" id="dev-floor-slider" min="1" max="20" step="1" value="1" />
+                      <span class="set-val" id="dev-floor-val">1</span>
+                    </div>
+                    <button class="dev-btn" id="dev-jump-floor">JUMP</button>
+                  </div>
+                  <div class="set-hint">Must be in an active run. Plays the real descent animation.</div>
+                </div>
+
+                <div class="dev-section">
+                  <div class="dev-section-title">TOGGLES</div>
+                  <div class="dev-toggles">
+                    <label class="dev-chk">
+                      <input type="checkbox" id="dev-invincible" />
+                      <span>Invincible (shield always full)</span>
+                    </label>
+                    <label class="dev-chk">
+                      <input type="checkbox" id="dev-reveal-orbs" />
+                      <span>Reveal soul orbs (brighter glow)</span>
+                    </label>
+                    <label class="dev-chk">
+                      <input type="checkbox" id="dev-slow-pacman" />
+                      <span>Slow Pac-Man (×0.4)</span>
+                    </label>
+                    <label class="dev-chk">
+                      <input type="checkbox" id="dev-infinite-stamina" />
+                      <span>Infinite stamina</span>
+                    </label>
+                  </div>
+                </div>
+
+                <div class="dev-section">
+                  <div class="dev-section-title">PLAY ANIMATIONS</div>
+                  <div class="dev-row">
+                    <button class="dev-btn" id="dev-play-descent">Descent fade</button>
+                    <button class="dev-btn" id="dev-play-cutscene">Cliffhanger cutscene</button>
+                    <button class="dev-btn" id="dev-play-floortitle">Floor title flash</button>
+                  </div>
+                </div>
+
+                <div class="dev-section">
+                  <div class="dev-section-title">JUMPSCARES</div>
+                  <div class="dev-row">
+                    <button class="dev-btn" id="dev-play-jumpscare-random">Random (1 of 8)</button>
+                    <button class="dev-btn" id="dev-play-jumpscare-0">#1 Bloody grin</button>
+                    <button class="dev-btn" id="dev-play-jumpscare-1">#2 Eye lunge</button>
+                    <button class="dev-btn" id="dev-play-jumpscare-2">#3 Static burst</button>
+                    <button class="dev-btn" id="dev-play-jumpscare-3">#4 Face distort</button>
+                    <button class="dev-btn" id="dev-play-jumpscare-4">#5 Chomp silhouette</button>
+                    <button class="dev-btn" id="dev-play-jumpscare-5">#6 Inverted grin</button>
+                    <button class="dev-btn" id="dev-play-jumpscare-6">#7 Bleeding</button>
+                    <button class="dev-btn" id="dev-play-jumpscare-7">#8 Shatter face</button>
+                  </div>
+                </div>
+
+                <div class="dev-section">
+                  <div class="dev-section-title">GRANT UPGRADE</div>
+                  <div class="dev-row">
+                    <button class="dev-btn" id="dev-grant-mini">Force MINI card</button>
+                    <button class="dev-btn" id="dev-grant-big">Force BIG card</button>
+                  </div>
+                </div>
+
+                <div class="dev-section">
+                  <div class="dev-section-title">RUN</div>
+                  <div class="dev-row">
+                    <button class="dev-btn" id="dev-win-floor">Win current floor</button>
+                    <button class="dev-btn" id="dev-kill-player">Kill player</button>
+                    <button class="dev-btn" id="dev-trigger-cliffhanger">Trigger cliffhanger</button>
+                  </div>
+                </div>
+
+                <div class="dev-section">
+                  <div class="dev-state" id="dev-state-readout">(no active run)</div>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- Keyboard shortcut cheat sheet — opened with '?' or from Settings. -->
+      <div id="shortcuts-panel" class="overlay hidden settings">
+        <div class="settings-window">
+          <div class="settings-head">
+            <div class="settings-title">KEYBOARD SHORTCUTS</div>
+            <button class="settings-close" id="shortcuts-close" aria-label="Close">×</button>
+          </div>
+          <div class="settings-body">
+            <div class="set-pane active">
+              <div class="shortcuts-grid">
+                <div class="shortcuts-group">
+                  <div class="shortcuts-group-title">MOVEMENT</div>
+                  <div class="shortcuts-row"><kbd>W</kbd><kbd>A</kbd><kbd>S</kbd><kbd>D</kbd><span>Move</span></div>
+                  <div class="shortcuts-row"><kbd>Shift</kbd><span>Sprint (drains stamina)</span></div>
+                  <div class="shortcuts-row"><kbd>Mouse</kbd><span>Look — click canvas to lock</span></div>
+                </div>
+                <div class="shortcuts-group">
+                  <div class="shortcuts-group-title">ACTIONS</div>
+                  <div class="shortcuts-row"><kbd>F</kbd><span>Toggle flashlight</span></div>
+                  <div class="shortcuts-row"><kbd>Esc</kbd><span>Close modals / release mouse</span></div>
+                  <div class="shortcuts-row"><kbd>?</kbd><span>This cheat sheet</span></div>
+                  <div class="shortcuts-row"><kbd>⚙</kbd><span>Settings (also pauses mid-run)</span></div>
+                </div>
+                <div class="shortcuts-group">
+                  <div class="shortcuts-group-title">GAMEPAD / TOUCH</div>
+                  <div class="shortcuts-row"><kbd>L-Stick</kbd><span>Move</span></div>
+                  <div class="shortcuts-row"><kbd>R-Stick</kbd><span>Look</span></div>
+                  <div class="shortcuts-row"><kbd>ZR / R2</kbd><span>Sprint</span></div>
+                  <div class="shortcuts-row"><kbd>A / ×</kbd><span>Flashlight (gamepad)</span></div>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- Descent fade overlay (camera-drop between floors) -->
+      <div id="descent-overlay" class="descent-overlay hidden">
+        <div class="descent-streaks"></div>
+        <div class="descent-caption" id="descent-caption">DEEPER</div>
+      </div>
+
+      <!-- Upgrade card picker — pops between floors and every 3 souls -->
+      <div id="upgrade-overlay" class="upgrade-overlay hidden">
+        <div class="upgrade-tier" id="upgrade-tier">MINI UPGRADE</div>
+        <div class="upgrade-subtitle">Pick one. Every gift draws its price.</div>
+        <div class="upgrade-cards" id="upgrade-cards"></div>
+      </div>
+
+      <!-- Cliffhanger cutscene after boss defeated -->
+      <div id="cutscene-overlay" class="cutscene-overlay hidden">
+        <div class="cutscene-frame" id="cutscene-frame"></div>
+        <div class="cutscene-caption" id="cutscene-caption"></div>
+        <button id="cutscene-skip" class="cutscene-skip hidden">skip</button>
+      </div>
+
+      <!-- Run-over screens -->
+      <div id="lose-screen" class="overlay hidden">
+        <div class="end-title lose">HE FOUND YOU</div>
+        <div class="end-sub">The chomping never really stopped.</div>
+        <div class="end-stats" id="lose-stats"></div>
+        <button class="end-btn" id="lose-again">Descend again</button>
+      </div>
+
+      <div id="cliffhanger-screen" class="overlay hidden">
+        <div class="end-title cliffhanger">RUN COMPLETE</div>
+        <div class="end-sub">Twenty floors. One soul.</div>
+        <div class="end-stats" id="cliff-stats"></div>
+        <div class="chapter-row">
+          <button class="end-btn primary" id="cliff-again">Descend again</button>
+          <button class="end-btn locked" id="cliff-chapter2" disabled>
+            <span class="lock-icon">🔒</span>
+            CHAPTER 2
+            <span class="lock-sub">coming soon</span>
+          </button>
+        </div>
+      </div>
+    </div>
+
+    <script type="module" src="/src/main.ts"></script>
+  </body>
+</html>
